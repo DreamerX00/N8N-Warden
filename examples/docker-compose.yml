@@ -1,0 +1,54 @@
+services:
+  n8n:
+    # ONE KNOB for the version. Always pin, never use :latest.
+    # This is a FRESH install (empty data dir), so there is no hop path to walk:
+    # migrations only matter when carrying an existing database forward.
+    #   Upgrade later = bump the tag, then:
+    #     docker compose pull && docker compose down && docker compose up -d
+    #   Across a major (2.x -> 3.x) go via the last 2.x release first, and take a
+    #   backup of the data dir before each hop:  tar czf n8n-backup.tgz -C ~/n8n_data .
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-2.34.5}
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # Public address — change to your domain when you put it behind HTTPS.
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      # No trailing slash — n8n appends its own paths (else //webhook/... ).
+      - WEBHOOK_URL=http://localhost:5678
+      - N8N_EDITOR_BASE_URL=http://localhost:5678
+      # Timezone for cron/schedule nodes.
+      - GENERIC_TIMEZONE=Asia/Kolkata
+      - TZ=Asia/Kolkata
+      # --- 2.0-ready defaults (harmless on 1.x, mandatory on 2.x) ---
+      # Task runners: default ON in 2.0. Set now so Code nodes behave the same across hops.
+      - N8N_RUNNERS_ENABLED=true
+      # 0600 config-file perms: enforced in 2.0. Disable only on Windows.
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      # Legacy SQLite driver is REMOVED in 2.0 — pooling driver becomes mandatory.
+      # Enabling now (>0) migrates you onto it before the 2.x hop, not during it.
+      - DB_SQLITE_POOL_SIZE=10
+      # In-memory binary mode is REMOVED in 2.0. Uncomment if any workflow moves files.
+      # - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      # ExecuteCommand + LocalFileTrigger are DISABLED by default in 2.0.
+      # Uncomment ONLY if you actually use them (security downgrade).
+      # - NODES_EXCLUDE=[]
+      # Plain http -> must be false or login breaks. Set true once behind HTTPS.
+      - N8N_SECURE_COOKIE=false
+      # Reverse-proxy hop count. Localhost = no proxy, so leave OFF.
+      # Behind n8n.example.com, set to the number of proxies in front:
+      #   nginx only = 1 ; Cloudflare -> nginx -> n8n = 2.
+      # Wrong/absent value -> ERR_ERL_UNEXPECTED_X_FORWARDED_FOR (rejected requests).
+      # - N8N_PROXY_HOPS=1
+      # Do NOT set N8N_ENCRYPTION_KEY here. On first boot n8n generates one and
+      # writes it to ~/n8n_data/config — that file IS your credentials. Back it
+      # up; without it every stored credential is unrecoverable ciphertext.
+    volumes:
+      # Absolute path on purpose: a relative ./n8n_data resolves against the
+      # directory you run `docker compose` from, so running it from elsewhere
+      # silently creates a second, empty data dir and n8n looks wiped.
+      # Container runs as uid 1000 (node) — the host dir must be owned by 1000:1000.
+      - /opt/n8n_data:/home/node/.n8n

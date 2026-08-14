@@ -1,0 +1,52 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  n8n data — NEVER commit. Contains workflows, credentials (as ciphertext),
+#  and the encryption key in `config`. Publishing any of this leaks secrets.
+# ─────────────────────────────────────────────────────────────────────────
+n8n_data/
+n8n_data*/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+config
+.env
+.env.*
+!.env.example
+
+# warden's own state — snapshots (full DB copies) and the undo journal.
+# Local runtime data, not source. Also lives in ~/.n8n-warden by default.
+.n8n-warden/
+backups/
+*.tgz
+*.tar.gz
+*.sql
+
+# Build output — regenerate with ./build.sh
+n8n-warden.pyz
+*.pyz
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Agent / tooling scratch
+.claude/
+scratchpad/
