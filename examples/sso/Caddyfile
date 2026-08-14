@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  Caddy — TLS, path split, and forward-auth for n8n behind SSO
+#
+#  Caddy fetches and renews a real Let's Encrypt cert for {$N8N_DOMAIN}
+#  automatically (needs ports 80+443 reachable from the internet and a DNS
+#  A/AAAA record pointing here). No manual cert wrangling.
+#
+#  The routing decision is the whole game:
+#    • machine-to-machine paths (webhooks, forms, MCP, health)  → n8n, NO auth
+#    • oauth2-proxy's own endpoints                             → oauth2-proxy
+#    • everything else (editor UI, /rest/*, WebSocket push)     → auth, then n8n
+# ─────────────────────────────────────────────────────────────────────────
+
+{$N8N_DOMAIN} {
+	encode zstd gzip
+
+	# ── BYPASS: non-interactive callers that cannot do an interactive login ──
+	# Verified present on n8n 2.34.5. Anchored to path prefixes so the editor
+	# and /rest/* can never be reached through one of these matchers.
+	@public {
+		path /webhook/*  /webhook-test/*  /webhook-waiting/*
+		path /form/*     /form-test/*     /form-waiting/*
+		path /mcp/*      /mcp-test/*
+		path /healthz    /healthz/*       /metrics
+		# n8n's OWN credential-OAuth callback (Google Sheets etc.). Fires as a
+		# browser redirect while the user still holds their session — but the
+		# IdP redirect can strip the cookie, so we let it through explicitly.
+		path /rest/oauth2-credential/callback  /rest/oauth1-credential/callback
+	}
+	handle @public {
+		reverse_proxy n8n:5678
+	}
+
+	# ── oauth2-proxy's endpoints: sign-in, callback, sign-out, auth check ──
+	# Must always be reachable unauthenticated, or login can never complete.
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180
+	}
+
+	# ── GATED: the editor UI, /rest/* (incl. the /rest/push WebSocket) ─────
+	# forward_auth asks oauth2-proxy "is this request authenticated?" on every
+	# hit. 2xx → proxied to n8n. 401 → redirected to the IdP. Caddy upgrades
+	# the /rest/push WebSocket transparently; the auth check runs on the HTTP
+	# upgrade request, which carries the cookie.
+	handle {
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+			# On success, hand n8n the identity in headers (logging/audit only —
+			# n8n CE does not consume these; see README §"Double login").
+			copy_headers X-Auth-Request-User X-Auth-Request-Email X-Auth-Request-Preferred-Username
+			# On 401, send the browser to the sign-in flow instead of erroring.
+			@bad status 401
+			handle_response @bad {
+				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+			}
+		}
+		reverse_proxy n8n:5678
+	}
+
+	# Security headers on everything Caddy serves.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
