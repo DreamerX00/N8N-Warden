@@ -101,6 +101,28 @@ The routing decision *is* the security boundary. Verified live on **2.34.5**:
 
 ---
 
+## Already running ALB → nginx → n8n? Use the nginx variant
+
+The default above uses Caddy as a fresh edge. If you **already have an AWS ALB and nginx** in front of n8n (as most production deployments do), don't add Caddy — keep your edge and let **nginx do the auth check** via `auth_request`. Files: [`nginx-alb/`](nginx-alb/).
+
+```
+ALB (TLS)  →  your nginx (n8n-sso.conf)  →  oauth2-proxy  (auth check)
+                                          →  n8n          (unmodified)
+```
+
+- **TLS stays at the ALB.** nginx listens HTTP behind it and trusts `X-Forwarded-Proto`. n8n runs with **`N8N_PROXY_HOPS=2`** (ALB + nginx) — get this wrong and n8n miscomputes client IPs and webhook URLs.
+- **ALB target health check must hit `/healthz`** (un-gated), never `/` — the editor now 302-redirects to the IdP, which the ALB would read as unhealthy.
+- **ALB supports WebSockets natively**; nginx forwards the `Upgrade`/`Connection` headers for `/rest/push` (in the config). Bump the ALB idle timeout to ≥ 3600s so the editor's live push isn't cut.
+- **n8n binds to `127.0.0.1` only** — reachable by nginx, never the internet. Verify with `docker ps` (no `0.0.0.0:5678`).
+
+Deploy: register the OIDC client in Prism (callback `https://n8n.example.com/oauth2/callback`), fill `.env`, `docker compose -f nginx-alb/docker-compose.yml up -d`, drop `nginx-alb/n8n-sso.conf` into your nginx and reload. Everything in the [testing matrix](#18-testing-matrix) applies unchanged.
+
+### Even cleaner on AWS (if your IdP speaks OIDC): let the ALB do it
+
+An AWS ALB can authenticate natively with an `authenticate-oidc` listener action — **no oauth2-proxy container at all.** You add ordered listener rules: `authenticate-oidc` then `forward` for the editor paths, and plain `forward` (no auth) for `/webhook/*`, `/api/*`, `/healthz` — the same path split, expressed as ALB rules instead of nginx locations. This is the least-moving-parts option on AWS, but it (a) requires your IdP to expose **OIDC** (issuer, client id/secret, and the ALB's `/oauth2/idpresponse` callback registered), and (b) moves the config into your ALB/Terraform rather than a file. If Prism gives you OIDC and you can edit the ALB rules, this is arguably the cleanest of all. If Prism is SAML-only, stay with the nginx + oauth2-proxy (or Authentik) variant.
+
+---
+
 ## 9–10. Deploy
 
 Prereqs: a DNS record, ports 80+443 open, Docker Compose.

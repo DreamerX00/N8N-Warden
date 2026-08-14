@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  The two new pieces for an existing ALB → nginx → n8n stack.
+#
+#  Your ALB and your nginx stay as they are. This adds oauth2-proxy (the auth
+#  engine your nginx calls via auth_request) and — if you want it managed by
+#  compose — n8n. If n8n already runs elsewhere, drop the n8n service and point
+#  the nginx `upstream n8n_backend` at wherever it listens.
+#
+#  Both services bind to 127.0.0.1 so only your local nginx can reach them,
+#  never the internet directly. If your nginx is itself a container, put all
+#  three on one compose network and use service names instead (see n8n-sso.conf).
+# ─────────────────────────────────────────────────────────────────────────
+
+services:
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.11.0   # >= 7.11.0 (CVE-2025-54576)
+    container_name: n8n-sso-oauth2-proxy
+    restart: unless-stopped
+    command: --config=/oauth2-proxy.cfg
+    volumes:
+      - ../oauth2-proxy.cfg:/oauth2-proxy.cfg:ro       # shared with the Caddy variant
+    environment:
+      OAUTH2_PROXY_CLIENT_ID:       ${OIDC_CLIENT_ID}
+      OAUTH2_PROXY_CLIENT_SECRET:   ${OIDC_CLIENT_SECRET}
+      OAUTH2_PROXY_COOKIE_SECRET:   ${OAUTH2_PROXY_COOKIE_SECRET}
+      OAUTH2_PROXY_OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OAUTH2_PROXY_REDIRECT_URL:    https://${N8N_DOMAIN}/oauth2/callback
+      OAUTH2_PROXY_COOKIE_DOMAINS:  ${N8N_DOMAIN}
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ${N8N_DOMAIN}
+    ports:
+      - "127.0.0.1:4180:4180"       # only the host's nginx can reach it
+
+  # Optional — omit if n8n already runs on this host / behind this nginx.
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-2.34.5}
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      - N8N_HOST=${N8N_DOMAIN}
+      - N8N_PROTOCOL=https
+      - N8N_PORT=5678
+      - N8N_EDITOR_BASE_URL=https://${N8N_DOMAIN}/
+      - WEBHOOK_URL=https://${N8N_DOMAIN}/
+      - N8N_SECURE_COOKIE=true
+      # ALB + nginx both rewrite X-Forwarded-* → two hops in front of n8n.
+      - N8N_PROXY_HOPS=2
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-UTC}
+      - TZ=${GENERIC_TIMEZONE:-UTC}
+      - N8N_RUNNERS_ENABLED=true
+      - DB_SQLITE_POOL_SIZE=10
+    volumes:
+      - /opt/n8n_data:/home/node/.n8n   # ← your existing bind mount (uid 1000)
+    ports:
+      - "127.0.0.1:5678:5678"           # only nginx reaches it; not internet-facing
