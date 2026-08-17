@@ -31,24 +31,29 @@ Four moving parts get added — nginx moves into Docker Compose, and oauth2-prox
 
 Collect these before you start — Steps 2, 3 and 6 each depend on one of them.
 
-| You need | Where it comes from |
-|---|---|
-| **Root/sudo on the EC2 host** | your usual access |
-| **Admin access to the Prism portal** | to create the application in Step 2 |
-| **Your public hostname** | the name users type, e.g. `n8n.example.com`. Must already resolve to your ALB. |
-| **Ability to edit the ALB target group** | Step 6 |
-| **Docker + Compose v2** | already present if n8n runs under Compose |
+| You need                                       | Where it comes from                                                             |
+| ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Root/sudo on the EC2 host**            | your usual access                                                               |
+| **Admin access to the Prism portal**     | to create the application in Step 2                                             |
+| **Your public hostname**                 | the name users type, e.g.`n8n.example.com`. Must already resolve to your ALB. |
+| **Ability to edit the ALB target group** | Step 6                                                                          |
+| **Docker + Compose v2**                  | already present if n8n runs under Compose                                       |
 
 Check the host is ready:
 
 ```bash
 docker compose version          # must print v2.x, not docker-compose 1.x
 docker ps                       # your n8n container should be listed
+docker port $(docker ps --filter ancestor=docker.n8n.io/n8nio/n8n -q | head -1)   # how n8n is reachable today
 systemctl is-active nginx       # 'active' if nginx runs on the host
 df -h /                         # need ~4 GB free for the new images
 ```
 
 If `docker compose version` fails, install the Compose v2 plugin before going further — the installer refuses to run without it.
+
+**If `docker port` prints something like `5678/tcp -> 0.0.0.0:5678`,** your ALB targets n8n directly and nginx — even if running — is not in the path. That is a normal starting point, and the installer handles it; just read [Step 6](#step-6--point-the-alb-at-it) before you begin, because you will need to repoint the ALB promptly after the cutover.
+
+**If nginx is running but was never configured** (the stock "Welcome to nginx" default site), stopping it costs you nothing — it only frees port 80. The installer detects this and says so rather than implying it is tearing down something you rely on.
 
 ---
 
@@ -90,15 +95,15 @@ Prism needs to know about n8n before n8n can send anyone to Prism.
 
 In the Prism admin portal go to **Applications → Custom Applications → Create**, and fill it in using **your** hostname in place of `n8n.example.com`:
 
-| Prism field | Value |
-|---|---|
-| **Application Name** | `n8n` |
-| **Client ID** | `https://n8n.example.com/auth/realms/n8n` |
-| **ACS URL** | `https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint` |
-| **Name ID Format** | `Persistent` |
-| **Single Logout URL** *(optional)* | `https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint` |
-| **IDP Initiated SSO Relay State** *(optional)* | `https://n8n.example.com/` |
-| Description / Icon | anything you like |
+| Prism field                                            | Value                                                                      |
+| ------------------------------------------------------ | -------------------------------------------------------------------------- |
+| **Application Name**                             | `n8n`                                                                    |
+| **Client ID**                                    | `https://n8n.example.com/auth/realms/n8n`                       |
+| **ACS URL**                                      | `https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint` |
+| **Name ID Format**                               | `Persistent`                                                             |
+| **Single Logout URL** *(optional)*             | `https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint` |
+| **IDP Initiated SSO Relay State** *(optional)* | `https://n8n.example.com/`                                      |
+| Description / Icon                                     | anything you like                                                          |
 
 > ⚠️ **Client ID cannot be changed after creation.** Copy it exactly, including `https://` and the trailing `/auth/realms/n8n` with no slash at the end. Getting it wrong means deleting the application and starting over.
 >
@@ -136,18 +141,18 @@ It reads your running deployment and **pre-fills every answer it can work out**.
 
 ### What it asks, in order
 
-| # | Prompt | What to do |
-|---|---|---|
-| 1 | **Public hostname** | Pre-filled from your running n8n or nginx config. Confirm it is the name users type, not the EC2 private DNS. |
-| 2 | **n8n version to run** | Pre-filled with the tag you already run. **Keep it** — SSO does not need an upgrade, and changing two things at once makes failures ambiguous. |
-| 3 | **Is an ALB in front of this host?** | `yes` for a normal EC2 + ALB setup. Sets `N8N_PROXY_HOPS=2`. Wrong value ⇒ n8n logs wrong client IPs and builds wrong webhook URLs. |
-| 4 | **Host port for nginx** | `80` unless you deliberately run elsewhere. This is where your ALB target group points. |
-| — | *It now prints the Prism application values from Step 2* | Cross-check them against what you entered in Prism. If they differ, fix Prism now. |
-| 5 | **Prism SSO URL** | Paste the SSO URL from Step 2. |
-| 6 | **Prism Single Logout URL** | Paste it, or leave `-` to skip. |
-| 7 | **Path to Prism's certificate** | `/root/prism.crt`. It may already be pre-filled if it found a certificate on the host. |
-| 8 | **Email domain allowed to reach n8n** | e.g. `example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 9](#step-9--hardening)). |
-| 9 | **Timezone** | Pre-filled from your container or the host. Drives Cron/Schedule nodes. |
+| #  | Prompt                                                     | What to do                                                                                                                                                  |
+| -- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1  | **Public hostname**                                  | Pre-filled from your running n8n or nginx config. Confirm it is the name users type, not the EC2 private DNS.                                               |
+| 2  | **n8n version to run**                               | Pre-filled with the tag you already run.**Keep it** — SSO does not need an upgrade, and changing two things at once makes failures ambiguous.        |
+| 3  | **Is an ALB in front of this host?**                 | `yes` for a normal EC2 + ALB setup. Sets `N8N_PROXY_HOPS=2`. Wrong value ⇒ n8n logs wrong client IPs and builds wrong webhook URLs.                    |
+| 4  | **Host port for nginx**                              | `80` unless you deliberately run elsewhere. This is where your ALB target group points.                                                                   |
+| — | *It now prints the Prism application values from Step 2* | Cross-check them against what you entered in Prism. If they differ, fix Prism now.                                                                          |
+| 5  | **Prism SSO URL**                                    | Paste the SSO URL from Step 2.                                                                                                                              |
+| 6  | **Prism Single Logout URL**                          | Paste it, or leave`-` to skip.                                                                                                                            |
+| 7  | **Path to Prism's certificate**                      | `/root/prism.crt`. It may already be pre-filled if it found a certificate on the host.                                                                    |
+| 8  | **Email domain allowed to reach n8n**                | e.g.`example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 9](#step-9--hardening)). |
+| 9  | **Timezone**                                         | Pre-filled from your container or the host. Drives Cron/Schedule nodes.                                                                                     |
 
 Then it prints a **review block** and asks to proceed. **Read it.** Nothing has changed on the host up to this point — answering anything but `y` exits cleanly.
 
@@ -220,13 +225,29 @@ Only the nginx line should show a host binding (`0.0.0.0:80->80/tcp`). If `5678`
 
 ## Step 6 — Point the ALB at it
 
+> **Do this immediately after Step 3.** If your ALB currently targets n8n's own port (`5678`) — which is the usual arrangement when nginx on the host was never configured to proxy — then that port is **gone** the moment the cutover completes. The new stack publishes nginx and nothing else. Between the cutover and this step, the target group is unhealthy and the site is down. That is the whole of your downtime, and its length is up to you.
+
 Three settings in the AWS console, all of which matter:
 
-1. **Target group → port `80`** (or whatever you chose in prompt 4), protocol HTTP.
+1. **Target group → port `80`** (or whatever you chose in prompt 4), protocol HTTP. If it currently reads `5678`, this is the change that brings the site back.
 2. **Health check path → `/healthz`.** Not `/`. The editor now returns a 302 to Prism, which the ALB reads as unhealthy and takes the target out of service. `/healthz` is deliberately un-gated for exactly this.
 3. **Idle timeout → 3600 seconds or more.** The n8n editor holds a WebSocket at `/rest/push`; a short idle timeout kills it and the UI stops updating live.
 
 Then confirm the ALB sees the target as healthy before testing in a browser.
+
+### Close the old port
+
+Once traffic flows through nginx, remove `5678` (or whichever port n8n used to publish) from the instance's **security group**.
+
+This is not tidying — it is the difference between having SSO and appearing to. n8n no longer listens on that port, but leaving it open preserves a route that never passed through Prism. Anything that can still reach n8n directly is not gated at all.
+
+Verify nothing is exposed but nginx:
+
+```bash
+docker compose -p n8n-sso ps --format '{{.Name}}\t{{.Ports}}'
+```
+
+Only the nginx line should show a host binding.
 
 ---
 
@@ -288,11 +309,9 @@ Work through this before calling it live.
 
 - [ ] **Access is restricted.** Check `email_domains` in `/opt/n8n-sso/oauth2-proxy.cfg` is your domain and not `*`.
 - [ ] **Or gate on a Prism group** instead — stricter, and revocation is immediate on next login. Edit the same file:
-      ```ini
-      allowed_groups   = ["n8n-users"]
-      oidc_groups_claim = "groups"
-      ```
-      then `docker compose -p n8n-sso restart oauth2-proxy`. The realm already maps Prism's SAML `groups` attribute into the OIDC `groups` claim, and re-applies it on **every** login.
+  ``ini allowed_groups   = ["n8n-users"] oidc_groups_claim = "groups" ``
+  then `docker compose -p n8n-sso restart oauth2-proxy`. The realm already maps Prism's SAML `groups` attribute into the OIDC `groups` claim, and re-applies it on **every** login.
+- [ ] **The old direct port is closed in the security group.** If `5678` is still reachable from anywhere, that path bypasses Prism entirely and the gate is decorative. This is the single most important item on this list.
 - [ ] **`.env` is `600` and backed up somewhere safe.** It holds every secret; losing it while keeping the Keycloak volume is unrecoverable.
 - [ ] **Back up the `n8n-sso_keycloak_db` volume** along with your n8n data.
 - [ ] **MFA is enforced in Prism**, and n8n users are provisioned/deprovisioned through the Prism group.
@@ -447,16 +466,16 @@ docker compose -p n8n-sso logs -f keycloak       # SAML exchange with Prism
 
 ## What lives where
 
-| Path | What it is |
-|---|---|
-| `/opt/n8n-sso/.env` | every secret and setting — mode `600`, back it up |
-| `/opt/n8n-sso/docker-compose.yml` | the stack |
-| `/opt/n8n-sso/nginx/n8n-sso.conf` | **the auth boundary** — which paths are gated and which bypass |
-| `/opt/n8n-sso/oauth2-proxy.cfg` | who is allowed in |
-| `/opt/n8n-sso/keycloak/realm-n8n.json` | the realm as first imported (later changes live in the DB) |
-| `/opt/n8n-sso/backups/<timestamp>/` | pre-install backups of n8n data and `/etc/nginx` |
-| `/opt/n8n-sso/ROLLBACK.md` | generated undo instructions |
-| `/opt/n8n-sso/src/` | this repository, as cloned by the installer |
+| Path                                     | What it is                                                            |
+| ---------------------------------------- | --------------------------------------------------------------------- |
+| `/opt/n8n-sso/.env`                    | every secret and setting — mode`600`, back it up                   |
+| `/opt/n8n-sso/docker-compose.yml`      | the stack                                                             |
+| `/opt/n8n-sso/nginx/n8n-sso.conf`      | **the auth boundary** — which paths are gated and which bypass |
+| `/opt/n8n-sso/oauth2-proxy.cfg`        | who is allowed in                                                     |
+| `/opt/n8n-sso/keycloak/realm-n8n.json` | the realm as first imported (later changes live in the DB)            |
+| `/opt/n8n-sso/backups/<timestamp>/`    | pre-install backups of n8n data and`/etc/nginx`                     |
+| `/opt/n8n-sso/ROLLBACK.md`             | generated undo instructions                                           |
+| `/opt/n8n-sso/src/`                    | this repository, as cloned by the installer                           |
 
 ---
 

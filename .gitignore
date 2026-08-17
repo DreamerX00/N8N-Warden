@@ -54,3 +54,6 @@ Thumbs.db
 # Agent / tooling scratch
 .claude/
 scratchpad/
+
+# Personal filled-in copy of the deployment guide — never committed.
+STEP.local.md

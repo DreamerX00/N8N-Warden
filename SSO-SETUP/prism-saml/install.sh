@@ -191,10 +191,35 @@ else
   DET_HOST=""; DET_PROTO=""; DET_HOPS=""; DET_TZ=""
 fi
 
-HOST_NGINX="no"; DET_NGINX_DOMAIN=""; DET_NGINX_PORT=""
+# How is n8n reachable *today*? If it publishes a host port, your load balancer
+# almost certainly targets that port, and it will have to be repointed at nginx
+# after the cutover — the new stack deliberately publishes nothing but nginx.
+OLD_PUBLISHED=""
+if [ -n "$N8N_CONTAINER" ]; then
+  OLD_PUBLISHED="$(docker port "$N8N_CONTAINER" 2>/dev/null | awk -F: '{print $NF}' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+  if [ -n "$OLD_PUBLISHED" ]; then
+    warn "n8n currently publishes host port(s): $OLD_PUBLISHED"
+    say  "  after the cutover it publishes NOTHING — only nginx is exposed."
+    say  "  Anything pointing at those ports (an ALB target group, a bookmark)"
+    say  "  must be repointed, and they should be closed in your security group:"
+    say  "  a caller that can still reach n8n directly skips SSO completely."
+  else
+    ok "n8n publishes no host port (already only reachable through a proxy)"
+  fi
+fi
+
+HOST_NGINX="no"; DET_NGINX_DOMAIN=""; DET_NGINX_PORT=""; NGINX_PROXIES_N8N=""
 if command -v systemctl >/dev/null && systemctl is-enabled nginx >/dev/null 2>&1; then
   HOST_NGINX="yes"
-  ok "host nginx detected ($(systemctl is-active nginx)) — it will be stopped and disabled at cutover"
+  # A running nginx that proxies nothing is the stock default site. Worth saying
+  # out loud, because "we are about to stop nginx" reads alarming otherwise.
+  if [ -d /etc/nginx ] && grep -rqE 'proxy_pass[^;]*(5678|n8n)' /etc/nginx 2>/dev/null; then
+    NGINX_PROXIES_N8N=1
+    ok "host nginx detected ($(systemctl is-active nginx)) and it proxies to n8n — its config is backed up, then it is stopped and disabled"
+  else
+    ok "host nginx detected ($(systemctl is-active nginx)) but nothing in it proxies to n8n"
+    say "  looks like the stock default site — stopping it only frees port 80."
+  fi
 else
   info "no host nginx under systemd — nothing to migrate away from"
 fi
@@ -828,7 +853,9 @@ cat <<EOF
      docker compose -p ${COMPOSE_PROJECT} restart nginx
 
    ${B}Before you call it live${X}
-     • Point the ALB target group at host port ${HTTP_PORT}, health check path /healthz
+     • Point the ALB target group at host port ${HTTP_PORT}, health check path /healthz$(
+       [ -n "$OLD_PUBLISHED" ] && printf '\n       ↳ it currently targets %s — until you change it, the target is\n         unhealthy and the site is down. Do this now.' "$OLD_PUBLISHED")$(
+       [ -n "$OLD_PUBLISHED" ] && printf '\n     • Close %s in the security group. n8n no longer listens there, but\n       leaving it open invites a direct route that skips SSO entirely.' "$OLD_PUBLISHED")
      • ALB idle timeout ≥ 3600s so the editor's WebSocket push isn't cut
      • Confirm ${PUBLIC_URL} resolves from *this host* too — oauth2-proxy fetches
        the issuer over the public URL. If it can't, re-run with
