@@ -370,7 +370,25 @@ Usually a mismatch between what Prism has and what Keycloak sends:
 
 ### Signed in at Prism, then "You do not have permission"
 
-The gate authenticated you but the allow-list refused you. Check `email_domains` / `allowed_groups` in `/opt/n8n-sso/oauth2-proxy.cfg` against the email or groups Prism actually sends, then restart oauth2-proxy.
+The gate authenticated you but the allow-list refused you — almost always because **no email attribute arrived**, so `email_domains` had nothing to match.
+
+The realm ships importers for every realistic spelling of email, so this should be rare. To see exactly what Prism sent, capture the assertion in the browser — this always works and needs no server change:
+
+1. Devtools → **Network**, "Preserve log" on, then log in.
+2. Find the `POST` to `/auth/realms/n8n/broker/prism/endpoint`.
+3. Copy the `SAMLResponse` form field and decode it:
+
+```bash
+printf %s '<paste SAMLResponse>' | base64 -d | xmllint --format - | grep -i 'Attribute Name'
+```
+
+Then add the real name as an importer: Keycloak console → realm `n8n` → Identity Providers → `prism` → Mappers → Add, type **Attribute Importer**, attribute name as printed, user attribute `email`. Log in again.
+
+Same procedure if group gating is not working — look for the groups attribute and map it to `prism-groups`. Full detail in [`SSO-SETUP/prism-saml/README.md`](SSO-SETUP/prism-saml/README.md#attribute-mapping--how-it-copes-with-not-knowing-prisms-names).
+
+### Keycloak asks you to complete your profile on first login
+
+Keycloak's first-broker-login prompts only when a required field is **missing** — so this means email, first name or last name did not map. Fill it in to proceed, then fix the mapping with the capture above so later users are not prompted.
 
 ### Webhooks stopped firing
 

@@ -149,11 +149,51 @@ Step 3 works because `realm-n8n.json` replaces the built-in browser flow with on
 
 Then run the parent [testing matrix](../README.md#18-testing-matrix) — webhooks, API, WebSocket push and credential OAuth callbacks are unaffected by the broker.
 
+## Attribute mapping — how it copes with not knowing Prism's names
+
+Prism does not publish the attribute names it puts in an assertion. Its docs say only *"check that the SAML attribute mapping in the target application matches the attributes sent by Prism (e.g., email, name)"*, and its user model is Username / Email / First Name / Last Name plus Groups.
+
+So the realm does not bet on one spelling. It ships **30 attribute importers** — every realistic name for each of the four fields, all writing to the same target:
+
+| Target | Matched from |
+|---|---|
+| `email` | `email`, `Email`, `emailAddress`, `mail`, friendly name `email`, `urn:oid:1.2.840.113549.1.9.1` (X500), `urn:oid:0.9.2342.19200300.100.1.3` (LDAP mail), the WS-Fed `…/claims/emailaddress` |
+| `firstName` | `firstName`, `first_name`, `givenName`, `given_name`, friendly `givenName`, `urn:oid:2.5.4.42`, `…/claims/givenname` |
+| `lastName` | `lastName`, `last_name`, `surname`, `sn`, friendly `surname`, `urn:oid:2.5.4.4`, `…/claims/surname` |
+| `prism-groups` | `groups`, `Groups`, `memberOf`, `member_of`, `roles`, friendly `groups`, `…/claims/Group`, `…/identity/claims/groups` |
+
+An attribute importer whose attribute is **absent** from the assertion does nothing at all, so the extras cost nothing at runtime — whichever name Prism actually uses is the one that fires. All 30 are verified to import and register on Keycloak 26.7.1.
+
+**`email` is the one that matters.** oauth2-proxy's `email_domains` check is made against it: if no email arrives, nobody gets past the gate. `firstName`/`lastName` are cosmetic — n8n CE never sees them.
+
+### Find out what Prism really sends
+
+Do this once, then trim the list. The browser method always works and needs no server change:
+
+1. Open the login flow with devtools on, **Network** tab, "Preserve log" ticked.
+2. Authenticate at Prism. Find the `POST` to `/auth/realms/n8n/broker/prism/endpoint`.
+3. Copy the `SAMLResponse` form field and decode it:
+
+```bash
+printf %s '<paste SAMLResponse>' | base64 -d | xmllint --format - | grep -i 'Attribute Name'
+```
+
+That prints the exact names, verbatim. Alternatively, raise Keycloak's SAML logging (accepted and active on 26.7.1, though full assertion XML may need `:trace`):
+
+```yaml
+# in docker-compose.yml, under keycloak.environment — remove once you are done
+KC_LOG_LEVEL: "INFO,org.keycloak.broker.saml:debug,org.keycloak.saml:trace"
+```
+
+### Then trim
+
+Once you know the real names, delete the mappers you do not need from the Keycloak console (realm `n8n` → Identity Providers → `prism` → Mappers) and from `realm-n8n.json` for future installs. Keeping a `roles` importer you do not use is harmless, but a stray one that happens to match something unintended will feed `allowed_groups`, so tidy it.
+
 ## Group-based access
 
-The realm ships an IdP mapper copying the SAML `groups` attribute onto the brokered user, and a protocol mapper publishing it as the OIDC `groups` claim — so `allowed_groups` in oauth2-proxy gates on **Prism** group membership. `syncMode: FORCE` re-applies it on **every** login, so removing someone from the group in Prism takes effect on their next sign-in.
+`prism-groups` is republished as the OIDC `groups` claim by a protocol mapper on the `n8n-gateway` client, so `allowed_groups` in oauth2-proxy gates on **Prism** group membership. `syncMode: FORCE` re-applies it on **every** login, so removing someone from a group in Prism takes effect at their next sign-in.
 
-Prism's attribute names are whatever your tenant emits. If group gating doesn't work, look at a real assertion (Keycloak admin console → *Realm* → *Sessions*, or turn on `KC_LOG_LEVEL=DEBUG` briefly) and fix `attribute.name` in `identityProviderMappers`.
+If group gating silently lets everyone in, the `groups` attribute is not arriving — confirm with the capture above before adjusting `allowed_groups`.
 
 ## Logout
 

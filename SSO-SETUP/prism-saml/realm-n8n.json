@@ -94,7 +94,7 @@
   ],
   "identityProviderMappers": [
     {
-      "name": "email",
+      "name": "email-01-email",
       "identityProviderAlias": "prism",
       "identityProviderMapper": "saml-user-attribute-idp-mapper",
       "config": {
@@ -104,7 +104,77 @@
       }
     },
     {
-      "name": "firstName",
+      "name": "email-02-email",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "Email",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "email-03-emailaddress",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "emailAddress",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "email-04-mail",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "mail",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "email-05-urn-oid-1-2-840-113549-1-9-1",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "urn:oid:1.2.840.113549.1.9.1",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "email-06-urn-oid-0-9-2342-19200300-100-1-3",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "urn:oid:0.9.2342.19200300.100.1.3",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "email-07-schemas-xmlsoap-org-ws-2005-05-identity-claims-emailaddress",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "email-08-email",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.friendly.name": "email",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "firstName-09-firstname",
       "identityProviderAlias": "prism",
       "identityProviderMapper": "saml-user-attribute-idp-mapper",
       "config": {
@@ -114,7 +184,67 @@
       }
     },
     {
-      "name": "lastName",
+      "name": "firstName-10-first-name",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "first_name",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "firstName-11-givenname",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "givenName",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "firstName-12-given-name",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "given_name",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "firstName-13-urn-oid-2-5-4-42",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "urn:oid:2.5.4.42",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "firstName-14-schemas-xmlsoap-org-ws-2005-05-identity-claims-givenname",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "firstName-15-givenname",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.friendly.name": "givenName",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "lastName-16-lastname",
       "identityProviderAlias": "prism",
       "identityProviderMapper": "saml-user-attribute-idp-mapper",
       "config": {
@@ -124,12 +254,142 @@
       }
     },
     {
-      "name": "groups",
+      "name": "lastName-17-last-name",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "last_name",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "lastName-18-surname",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "surname",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "lastName-19-sn",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "sn",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "lastName-20-urn-oid-2-5-4-4",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "urn:oid:2.5.4.4",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "lastName-21-schemas-xmlsoap-org-ws-2005-05-identity-claims-surname",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "lastName-22-surname",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.friendly.name": "surname",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "prism-groups-23-groups",
       "identityProviderAlias": "prism",
       "identityProviderMapper": "saml-user-attribute-idp-mapper",
       "config": {
         "syncMode": "FORCE",
         "attribute.name": "groups",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-24-groups",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "Groups",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-25-memberof",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "memberOf",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-26-member-of",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "member_of",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-27-roles",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "roles",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-28-schemas-xmlsoap-org-claims-group",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "http://schemas.xmlsoap.org/claims/Group",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-29-schemas-microsoft-com-ws-2008-06-identity-claims-groups",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
+        "user.attribute": "prism-groups"
+      }
+    },
+    {
+      "name": "prism-groups-30-groups",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.friendly.name": "groups",
         "user.attribute": "prism-groups"
       }
     }
