@@ -618,6 +618,17 @@ ${EXTRA_HOSTS_BLOCK}
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: \${KC_DB_PASSWORD}
       KC_HOSTNAME: \${PUBLIC_URL}/auth
+      # Keycloak dropped the /auth context path in v17 (the Quarkus rewrite);
+      # this build option puts it back. We need SOME prefix so Keycloak can share
+      # one hostname with n8n — no second DNS record, no second certificate — and
+      # /auth is the conventional one. n8n serves nothing under it.
+      #
+      # CAUTION: http-relative-path is a BUILD-TIME option. It applies here only
+      # because the command above is `start` WITHOUT --optimized, so Keycloak
+      # re-augments itself at boot (that is most of the first-boot minute). Add
+      # --optimized without running `kc.sh build` first and Keycloak silently
+      # serves at / again — every URL below, the realm entityId, and the ACS URL
+      # you gave Prism all break at once.
       KC_HTTP_RELATIVE_PATH: /auth
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded

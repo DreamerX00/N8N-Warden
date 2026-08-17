@@ -60,6 +60,17 @@ services:
       # Public base URL. Keycloak builds every redirect and the OIDC issuer
       # from this — if it's wrong, login loops or the issuer won't match.
       KC_HOSTNAME: https://${N8N_DOMAIN}/auth
+      # Keycloak dropped the /auth context path in v17 (the Quarkus rewrite);
+      # this build option puts it back. We need SOME prefix so Keycloak can share
+      # one hostname with n8n — no second DNS record, no second certificate — and
+      # /auth is the conventional one. n8n serves nothing under it.
+      #
+      # CAUTION: http-relative-path is a BUILD-TIME option. It applies here only
+      # because the command above is `start` WITHOUT --optimized, so Keycloak
+      # re-augments itself at boot (that is most of the first-boot minute). Add
+      # --optimized without running `kc.sh build` first and Keycloak silently
+      # serves at / again — every URL below, the realm entityId, and the ACS URL
+      # you gave Prism all break at once.
       KC_HTTP_RELATIVE_PATH: /auth
       # TLS is terminated at the edge; Keycloak speaks HTTP behind it and
       # trusts X-Forwarded-*. Only the edge can reach it (no published port).
