@@ -232,7 +232,7 @@ say "until you confirm at the review step."
 
 ask N8N_DOMAIN "Public hostname" \
 "The hostname your users type, and the one your ALB serves — not the EC2 private
-   DNS. Example: automata.cloudkeeper.com. It must already resolve to your ALB." \
+   DNS. Example: n8n.example.com. It must already resolve to your ALB." \
   "$(first "$PREV_DOMAIN" "$DET_HOST" "$DET_NGINX_DOMAIN")" \
   "$( [ -n "$PREV_DOMAIN" ] && echo 'previous install' || { [ -n "$DET_HOST" ] && echo 'from the running n8n container' || { [ -n "$DET_NGINX_DOMAIN" ] && echo 'from your nginx config'; }; } )"
 

@@ -35,7 +35,7 @@ Re-running is safe and expected: it recovers every previous answer, **reuses the
 ```bash
 # non-interactive, e.g. from your own automation
 curl -fsSL .../install.sh | sudo env ASSUME_YES=1 \
-  N8N_DOMAIN=automata.cloudkeeper.com \
+  N8N_DOMAIN=n8n.example.com \
   PRISM_SSO_URL=https://<prism>/sso/saml \
   PRISM_CERT_INPUT=/root/prism.crt \
   ALLOWED_EMAIL_DOMAIN=cloudkeeper.com bash
