@@ -304,10 +304,73 @@ cat <<EOF
 EOF
 printf '%s└──────────────────────────────────────────────────────────────────┘%s\n' "$B$C" "$X"
 
+# Prism hands you IdP metadata as well as a separate SSO URL and certificate.
+# The metadata contains both, so taking it saves transcribing them — but note
+# it is read HERE, at install time, and the values are written into the realm.
+# Keycloak does not resolve the SSO URL from metadata at login time (verified on
+# 26.7.1: with a metadata URL configured, the AuthnRequest still goes to the
+# stored singleSignOnServiceUrl), so this is an input convenience, not a
+# runtime dependency.
+PRISM_META="${PRISM_META:-}"
+META_SSO=""; META_SLO=""; META_CERT=""
+if [ -z "$PRISM_SIGNING_CERT" ] && [ -z "$PREV_SSO" ]; then
+  ask PRISM_META "Prism IdP metadata — URL or file path" \
+"The easiest route: Prism's IdP Metadata for this application, either as a URL
+   or a downloaded .xml file. The SSO URL and the signing certificate are both
+   inside it, so supplying this means you do not have to transcribe either.
+   Enter '-' to provide the SSO URL and certificate separately instead." "-"
+fi
+if [ -n "$PRISM_META" ] && [ "$PRISM_META" != "-" ]; then
+  META_FILE="$INSTALL_DIR/.prism-metadata.xml"
+  mkdir -p "$INSTALL_DIR"
+  case "$PRISM_META" in
+    http://*|https://*) curl -fsSL "$PRISM_META" -o "$META_FILE" || die "could not fetch $PRISM_META" ;;
+    *) [ -f "$PRISM_META" ] || die "metadata file not found: $PRISM_META"; cp "$PRISM_META" "$META_FILE" ;;
+  esac
+  eval "$(python3 - "$META_FILE" <<'PY'
+import sys, re, shlex, xml.etree.ElementTree as ET
+MD="{urn:oasis:names:tc:SAML:2.0:metadata}"; DS="{http://www.w3.org/2000/09/xmldsig#}"
+try:
+    x=ET.fromstring(open(sys.argv[1],'rb').read())
+except Exception as e:
+    print("die=%s" % shlex.quote("metadata is not valid XML: %s" % e)); raise SystemExit
+d=x if x.tag==MD+"IDPSSODescriptor" else x.find(".//"+MD+"IDPSSODescriptor")
+if d is None:
+    print("die=%s" % shlex.quote("no IDPSSODescriptor in that document — is it IdP metadata?")); raise SystemExit
+cert=""
+for kd in d.findall(MD+"KeyDescriptor"):
+    if kd.get("use","signing")!="signing": continue
+    c=kd.find(".//"+DS+"X509Certificate")
+    if c is not None and c.text: cert=re.sub(r'\s+','',c.text); break
+sso=""
+for b in ("urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST",
+          "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"):
+    for s in d.findall(MD+"SingleSignOnService"):
+        if s.get("Binding")==b: sso=s.get("Location") or ""; break
+    if sso: break
+slo=""
+for s in d.findall(MD+"SingleLogoutService"):
+    slo=s.get("Location") or ""; break
+for k,v in (("META_SSO",sso),("META_SLO",slo),("META_CERT",cert)):
+    print("%s=%s" % (k, shlex.quote(v)))
+PY
+  )"
+  [ -n "${die:-}" ] && die "$die"
+  [ -n "$META_CERT" ] || die "that metadata contains no signing certificate — Keycloak cannot verify Prism's assertions without one"
+  [ -n "$META_SSO" ]  || die "that metadata contains no SingleSignOnService location"
+  ok "metadata parsed: SSO URL and a ${#META_CERT}-char signing certificate$( [ -n "$META_SLO" ] && echo ', plus a logout URL')"
+  PRISM_SIGNING_CERT="$META_CERT"
+  [ -z "$PRISM_SLO_URL" ] && PRISM_SLO_URL="$META_SLO"
+  case "$PRISM_META" in http://*|https://*) PRISM_META_URL="$PRISM_META" ;; esac
+fi
+PRISM_META_URL="${PRISM_META_URL:-}"
+
 ask PRISM_SSO_URL "Prism SSO URL" \
-"From the Custom Application you just created in Prism — the endpoint Keycloak
-   POSTs its SAML AuthnRequest to. Prism shows it on the application's page." \
-  "$PREV_SSO" "$( [ -n "$PREV_SSO" ] && echo 'previous install' )"
+"From the Custom Application you created in Prism — the endpoint Keycloak POSTs
+   its SAML AuthnRequest to. Required either way: Keycloak stores this, it does
+   not look it up in metadata at login time." \
+  "$(first "$PREV_SSO" "$META_SSO")" \
+  "$( [ -n "$META_SSO" ] && echo 'read from the metadata you supplied' || { [ -n "$PREV_SSO" ] && echo 'previous install'; } )"
 
 ask PRISM_SLO_URL "Prism Single Logout URL (optional)" \
 "Prism's logout endpoint, if it shows one — lets 'log out' end the Prism session
@@ -484,6 +547,13 @@ cfg = d["identityProviders"][0]["config"]
 cfg["entityId"] = """${PUBLIC_URL}/auth/realms/n8n"""
 cfg["singleSignOnServiceUrl"] = """${PRISM_SSO_URL}"""
 cfg["signingCertificate"] = """${PRISM_SIGNING_CERT}"""
+meta_url = """${PRISM_META_URL}"""
+if meta_url:
+    # Belt and braces: the certificate above is already extracted and stored, so
+    # login works regardless. This additionally lets Keycloak re-read the
+    # descriptor so a rotated signing key is picked up without a redeploy.
+    cfg["metadataDescriptorUrl"] = meta_url
+    cfg["useMetadataDescriptorUrl"] = "true"
 slo = """${PRISM_SLO_URL}"""
 if slo: cfg["singleLogoutServiceUrl"] = slo
 else: cfg.pop("singleLogoutServiceUrl", None)

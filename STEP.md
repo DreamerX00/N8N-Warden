@@ -109,19 +109,21 @@ In the Prism admin portal go to **Applications → Custom Applications → Creat
 >
 > The `prism` in the ACS URL is the internal name of the identity provider inside Keycloak. Leave it as `prism` — it is not your tenant name.
 
-Save the application. Prism then shows you three things — **you need the second and third**:
+Save the application. Prism then shows you **IdP Metadata**, an **SSO URL** and an **X.509 signing certificate**.
 
-1. IdP Metadata (not needed)
-2. **SSO URL** — copy it
-3. **X.509 signing certificate** — download it
+**Take the metadata — it is the shortest path.** The SSO URL and the certificate are both inside it, so the installer reads them out and you copy nothing by hand. If Prism gives you a metadata **URL**, just note it; if it only offers a download, put the file on the host:
 
-Put the certificate on the EC2 host:
+```bash
+scp idp-metadata.xml ec2-user@your-host:/root/prism-metadata.xml
+```
+
+Prefer to supply them separately? Copy the **SSO URL**, and put the certificate on the host instead — the installer takes a PEM file (`-----BEGIN CERTIFICATE-----`) or a bare base64 blob:
 
 ```bash
 scp prism.crt ec2-user@your-host:/root/prism.crt
 ```
 
-The installer accepts a PEM file (`-----BEGIN CERTIFICATE-----`) or a bare base64 blob; either is fine.
+> **The certificate is not optional either way.** It is what lets Keycloak tell a genuine Prism assertion from a forged one; without it, anyone could sign in as anyone. Metadata is simply a tidier way to deliver it. The **SSO URL is also always needed** — Keycloak stores it and builds every login request from the stored value rather than looking it up in metadata.
 
 ### Assign your users
 
@@ -148,11 +150,12 @@ It reads your running deployment and **pre-fills every answer it can work out**.
 | 3  | **Is an ALB in front of this host?**                 | `yes` for a normal EC2 + ALB setup. Sets `N8N_PROXY_HOPS=2`. Wrong value ⇒ n8n logs wrong client IPs and builds wrong webhook URLs.                    |
 | 4  | **Host port for nginx**                              | `80` unless you deliberately run elsewhere. This is where your ALB target group points.                                                                   |
 | — | *It now prints the Prism application values from Step 2* | Cross-check them against what you entered in Prism. If they differ, fix Prism now.                                                                          |
-| 5  | **Prism SSO URL**                                    | Paste the SSO URL from Step 2.                                                                                                                              |
-| 6  | **Prism Single Logout URL**                          | Paste it, or leave`-` to skip.                                                                                                                            |
-| 7  | **Path to Prism's certificate**                      | `/root/prism.crt`. It may already be pre-filled if it found a certificate on the host.                                                                    |
-| 8  | **Email domain allowed to reach n8n**                | e.g.`example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 9](#step-9--hardening)). |
-| 9  | **Timezone**                                         | Pre-filled from your container or the host. Drives Cron/Schedule nodes.                                                                                     |
+| 5  | **Prism IdP metadata — URL or file path**            | The easy answer: the metadata URL, or `/root/prism-metadata.xml`. The SSO URL and certificate are read out of it, so the next prompts fill themselves in. Enter `-` to supply them separately. |
+| 6  | **Prism SSO URL**                                    | Pre-filled from the metadata. Otherwise paste it from Step 2. |
+| 7  | **Prism Single Logout URL**                          | Paste it, or leave `-` to skip. |
+| 8  | **Path to Prism's certificate**                      | Skipped entirely when the metadata already supplied it. Otherwise `/root/prism.crt` — pre-filled if a certificate was found on the host. |
+| 9  | **Email domain allowed to reach n8n**                | e.g.`example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 9](#step-9--hardening)). |
+| 10 | **Timezone**                                         | Pre-filled from your container or the host. Drives Cron/Schedule nodes.                                                                                     |
 
 Then it prints a **review block** and asks to proceed. **Read it.** Nothing has changed on the host up to this point — answering anything but `y` exits cleanly.
 

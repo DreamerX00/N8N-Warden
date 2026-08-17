@@ -69,7 +69,18 @@ Create the Custom Application in the Prism admin portal, then keep what it hands
 | Single Logout URL *(optional)* | `https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint` |
 | IDP Initiated SSO Relay State *(optional)* | `https://n8n.example.com/` |
 
-After creation Prism gives you **IdP Metadata**, an **X.509 signing certificate**, and an **SSO URL**. You need the last two.
+After creation Prism gives you **IdP Metadata**, an **X.509 signing certificate**, and an **SSO URL**.
+
+### Metadata, or the certificate — which do you actually need?
+
+**Easiest: hand the installer the metadata** (a URL, or the downloaded `.xml`). The SSO URL *and* the signing certificate are both inside it, so it reads them out and you transcribe nothing — no `scp` of a `.crt` at all.
+
+Two points worth being precise about, because they are easy to get wrong:
+
+- **The certificate is not optional.** It is the trust anchor for `validateSignature`. Without it Keycloak cannot distinguish a genuine Prism assertion from one an attacker minted, and anybody could sign in as anybody. Supplying it *via* metadata is fine; skipping it is not. Nothing here turns signature validation off, and you should not add it.
+- **The SSO URL is always required**, metadata or not. Keycloak stores it and builds every AuthnRequest from the stored value — it does not resolve it from the descriptor at login time. Verified on 26.7.1: with `useMetadataDescriptorUrl=true` and a metadata URL configured, the AuthnRequest still went to the stored `singleSignOnServiceUrl`, and the descriptor was not fetched during login initiation.
+
+So metadata is an **input convenience**, not a runtime substitute. When you give it as a URL the installer additionally records `metadataDescriptorUrl` with `useMetadataDescriptorUrl=true`, so Keycloak can re-read the descriptor and pick up a **rotated signing key** without a redeploy — belt and braces on top of the certificate it already extracted.
 
 ## Configure
 
