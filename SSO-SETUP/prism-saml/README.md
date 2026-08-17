@@ -18,7 +18,7 @@ Keycloak stores **no passwords**. It receives Prism's SAML assertion, mints an O
 On the host that already runs n8n:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/examples/sso/prism-saml/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/SSO-SETUP/prism-saml/install.sh | sudo bash
 ```
 
 That one command does the whole job:
@@ -116,7 +116,7 @@ email_domains = ["cloudkeeper.com"]
 
 ## Deploy
 
-From `examples/sso/`:
+From `SSO-SETUP/`:
 
 ```bash
 docker compose -f docker-compose.yml -f prism-saml/docker-compose.yml up -d

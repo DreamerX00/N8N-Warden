@@ -20,9 +20,13 @@ backups/
 *.tar.gz
 *.sql
 
-# Build output — regenerate with ./build.sh
+# Build output — regenerate with ./build.sh. The .pyz ships as a GitHub
+# release asset, never as a tracked file.
 n8n-warden.pyz
 *.pyz
+
+# Local maintainer tooling — cuts releases, stays off the repo.
+release.sh
 
 # Python
 __pycache__/

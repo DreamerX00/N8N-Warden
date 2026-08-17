@@ -20,7 +20,7 @@
 #  no second DNS record and no second TLS certificate. The edge configs already
 #  route /auth/* here, un-gated (it *is* the login flow).
 #
-#  Start it alongside the main stack, from examples/sso/:
+#  Start it alongside the main stack, from SSO-SETUP/:
 #
 #      docker compose -f docker-compose.yml -f prism-saml/docker-compose.yml up -d
 #

@@ -2,7 +2,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #  n8n + CloudKeeper Prism SSO — end-to-end installer
 #
-#      curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/examples/sso/prism-saml/install.sh | sudo bash
+#      curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/SSO-SETUP/prism-saml/install.sh | sudo bash
 #
 #  Takes a host that already runs n8n under Docker Compose with nginx on the
 #  system, and turns it into:
@@ -384,7 +384,7 @@ else
   rm -rf "$SRC"; git clone --depth 1 --branch "$REPO_REF" -q "$REPO_URL" "$SRC"
   ok "cloned into $SRC"
 fi
-SSO="$SRC/examples/sso"
+SSO="$SRC/SSO-SETUP"
 for f in "$SSO/oauth2-proxy.cfg" "$SSO/nginx-alb/n8n-sso.conf" "$SSO/prism-saml/realm-n8n.json"; do
   [ -f "$f" ] || die "repo is missing $f — wrong ref?"
 done

@@ -11,7 +11,7 @@ Verified against **n8n 2.34.5** (all bypass paths probed live). Every version-se
 > ### Using CloudKeeper Prism? One command does all of it
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/examples/sso/prism-saml/install.sh | sudo bash
+> curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/SSO-SETUP/prism-saml/install.sh | sudo bash
 > ```
 >
 > Backs up your n8n data, moves host nginx into Compose, stands up the SAML broker, and smoke-tests the result — asking only for what it cannot detect, with everything else pre-filled from your running deployment. See [`prism-saml/`](prism-saml/README.md).
@@ -140,7 +140,7 @@ ALB (TLS)  →  your nginx (n8n-sso.conf)  →  oauth2-proxy  (auth check)
 Deploy: fill `.env`, then — **note the `--env-file` flag, it is not optional** —
 
 ```bash
-cd examples/sso
+cd SSO-SETUP
 docker compose --env-file .env -f nginx-alb/docker-compose.yml up -d
 # with Prism (SAML), add the broker:
 # docker compose --env-file .env -f nginx-alb/docker-compose.yml -f prism-saml/docker-compose.yml up -d
@@ -163,7 +163,7 @@ An AWS ALB can authenticate natively with an `authenticate-oidc` listener action
 Prereqs: a DNS record, ports 80+443 open, Docker Compose.
 
 ```bash
-cd examples/sso
+cd SSO-SETUP
 cp .env.example .env
 openssl rand -base64 32 | tr '+/' '-_'   # → paste as OAUTH2_PROXY_COOKIE_SECRET
 $EDITOR .env                     # set N8N_DOMAIN, OIDC_ISSUER_URL, client id/secret
@@ -252,7 +252,7 @@ The gateway (Caddy, oauth2-proxy) upgrades independently on its own cadence — 
 6. Authenticate → land on n8n's login → sign in / create the owner once.
 7. Run the [testing matrix](#18-testing-matrix).
 8. Restrict access (`email_domains`/`allowed_groups`), redeploy oauth2-proxy.
-9. Manage per-user n8n accounts and their access with [`n8n-warden`](../../README.md).
+9. Manage per-user n8n accounts and their access with [`n8n-warden`](../README.md).
 
 ## 18. Testing matrix
 
@@ -298,7 +298,7 @@ n8n CE has **no supported trusted-header / external-identity hook** (confirmed: 
 | Cost | free (OSS) | paid licence |
 | n8n modified | never | n/a |
 
-For the identity-mapping gap, pair this with [`n8n-warden`](../../README.md): the gateway controls *who gets in*, warden controls *what each account can see* once inside.
+For the identity-mapping gap, pair this with [`n8n-warden`](../README.md): the gateway controls *who gets in*, warden controls *what each account can see* once inside.
 
 ---
 

@@ -10,7 +10,7 @@
 #  never the internet directly. If your nginx is itself a container, put all
 #  three on one compose network and use service names instead (see n8n-sso.conf).
 #
-#  ⚠  ALWAYS start this with an explicit --env-file, from examples/sso/:
+#  ⚠  ALWAYS start this with an explicit --env-file, from SSO-SETUP/:
 #
 #      docker compose --env-file .env -f nginx-alb/docker-compose.yml up -d
 #
