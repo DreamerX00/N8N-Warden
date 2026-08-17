@@ -933,6 +933,16 @@ cat <<EOF
      docker compose -p ${COMPOSE_PROJECT} logs -f keycloak
      docker compose -p ${COMPOSE_PROJECT} restart nginx
 
+   ${B}Give Prism this, or the first login fails${X}
+     Prism requires signed AuthnRequests, so it needs the certificate this
+     Keycloak signs them with. Hand your Prism admin the SP descriptor:
+
+       ${PUBLIC_URL}/auth/realms/n8n/broker/prism/endpoint/descriptor
+
+     They import it against the n8n application (or, equivalently, turn off
+     "client signature required" for it). Until then Prism rejects the request
+     before anyone sees a login page.
+
    ${B}Before you call it live${X}
      • Point the ALB target group at host port ${HTTP_PORT}, health check path /healthz$(
        [ -n "$OLD_PUBLISHED" ] && printf '\n       ↳ it currently targets %s — until you change it, the target is\n         unhealthy and the site is down. Do this now.' "$OLD_PUBLISHED")$(

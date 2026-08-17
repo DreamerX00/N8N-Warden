@@ -6,7 +6,7 @@ Follow it top to bottom. Every command is meant to be pasted as-is; every value 
 
 **Time:** about 30 minutes, most of it waiting for containers.
 **Downtime:** roughly 1–2 minutes, during the cutover in [Step 3](#step-3--run-the-installer).
-**Reversible:** yes, completely — see [Step 10](#step-10--rollback).
+**Reversible:** yes, completely — see [Step 11](#step-11--rollback).
 
 ---
 
@@ -23,7 +23,7 @@ Four moving parts get added — nginx moves into Docker Compose, and oauth2-prox
 
 **Why Keycloak is in the chain.** Prism issues **SAML 2.0** to third-party applications. oauth2-proxy — the component that actually guards each URL — speaks **OIDC only**. Keycloak sits between them purely as a protocol translator: it accepts Prism's SAML assertion and re-issues it as an OIDC token. It stores no passwords; Prism remains the only place anyone types a credential.
 
-> **Know this before you start.** n8n Community Edition has no hook for an external identity, so it keeps its own login *underneath* the SSO gate. Users sign in at Prism, then once more at n8n per browser session. You create those n8n accounts yourself (Step 8). This is a limitation of n8n CE, not of this setup — see [`SSO-SETUP/README.md`](SSO-SETUP/README.md#the-double-login-reality).
+> **Know this before you start.** n8n Community Edition has no hook for an external identity, so it keeps its own login *underneath* the SSO gate. Users sign in at Prism, then once more at n8n per browser session. You create those n8n accounts yourself (Step 9). This is a limitation of n8n CE, not of this setup — see [`SSO-SETUP/README.md`](SSO-SETUP/README.md#the-double-login-reality).
 
 ---
 
@@ -192,7 +192,7 @@ It reads your running deployment and **pre-fills every answer it can work out**.
 | 6  | **Prism SSO URL**                                    | Pre-filled from the metadata. Otherwise paste it from Step 2. |
 | 7  | **Prism Single Logout URL**                          | Paste it, or leave `-` to skip. |
 | 8  | **Path to Prism's certificate**                      | Skipped entirely when the metadata already supplied it. Otherwise `/root/prism.crt` — pre-filled if a certificate was found on the host. |
-| 9  | **Email domain allowed to reach n8n**                | e.g.`example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 9](#step-9--hardening)). |
+| 9  | **Email domain allowed to reach n8n**                | e.g.`example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 10](#step-10--hardening)). |
 | 10 | **Timezone**                                         | Pre-filled from your container or the host. Drives Cron/Schedule nodes.                                                                                     |
 
 When you answer prompt 5 with metadata, it confirms what it found before moving on:
@@ -220,7 +220,7 @@ You do not choose any passwords: the cookie secret, OIDC client secret, Keycloak
 9/9  Done                         prints files, commands, next steps
 ```
 
-Step 7 takes 1–2 minutes: Keycloak has to start and import its realm on first boot. **This is your downtime.**
+Phase 7 of 9 takes 1–2 minutes: Keycloak has to start and import its realm on first boot. **This is your downtime.** (Those are the installer's own phases, not the numbered steps of this guide.)
 
 ---
 
@@ -241,7 +241,7 @@ The installer ends with a checklist. All ten should be ticked:
 ✔ existing n8n data present in the new container
 ```
 
-That last line is the one to read carefully — it lists the files it found in the new container. **`database.sqlite` and `config` must both be there.** If they are not, stop and go to [Step 10](#step-10--rollback).
+That last line is the one to read carefully — it lists the files it found in the new container. **`database.sqlite` and `config` must both be there.** If they are not, stop and go to [Step 11](#step-11--rollback).
 
 Anything not ticked: see [Troubleshooting](#troubleshooting) before continuing.
 
@@ -302,7 +302,32 @@ Only the nginx line should show a host binding.
 
 ---
 
-## Step 7 — Test the login end to end
+## Step 7 — Give Prism the SP certificate
+
+**Do this before you try to log in.** Prism's realm advertises `WantAuthnRequestsSigned="true"`, meaning it requires the login request itself to be signed by us. Keycloak does sign it — but Prism can only check that signature if it holds the matching certificate.
+
+Keycloak publishes it, so nothing has to be copied by hand. Confirm it is live:
+
+```bash
+curl -s https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint/descriptor \
+  | head -c 400
+```
+
+You should get an `<EntityDescriptor>` containing `<SPSSODescriptor AuthnRequestsSigned="true" …>` and an `X509Certificate`.
+
+Send your Prism administrator this URL:
+
+```
+https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint/descriptor
+```
+
+They import it against the n8n application — Prism is itself Keycloak, so this is its client "Signing keys / Import certificate". The equivalent alternative is to turn **client signature required** off for that application, which works but drops a signature check you are otherwise getting for free.
+
+Until this is done, Prism rejects the request **before** anyone is shown a login page, so it looks like the integration is broken rather than misconfigured.
+
+---
+
+## Step 8 — Test the login end to end
 
 Open `https://n8n.example.com/` in a **private/incognito window** — an existing session would hide problems.
 
@@ -311,7 +336,7 @@ Expected sequence:
 1. Browser bounces straight to **Prism** (no Keycloak page in between — that is what the browser-flow redirector is for).
 2. You authenticate at Prism, with MFA if your policy requires it.
 3. You land back on the n8n **login page**. This is expected — see the double-login note at the top.
-4. Sign in with an n8n account (Step 8), and the editor loads.
+4. Sign in with an n8n account (Step 9), and the editor loads.
 
 Now check the paths that must **not** be gated, from anywhere:
 
@@ -332,7 +357,7 @@ Finally, test a **real workflow's** production webhook URL with whatever normall
 
 ---
 
-## Step 8 — Create the n8n accounts
+## Step 9 — Create the n8n accounts
 
 The gate controls *who gets in*; n8n still has its own users, and its own owner account. Manage them with `n8n-warden`.
 
@@ -354,7 +379,7 @@ Give each person an n8n account whose email **matches their Prism email**. Nothi
 
 ---
 
-## Step 9 — Hardening
+## Step 10 — Hardening
 
 Work through this before calling it live.
 
@@ -372,7 +397,7 @@ Work through this before calling it live.
 
 ---
 
-## Step 10 — Rollback
+## Step 11 — Rollback
 
 The installer writes `/opt/n8n-sso/ROLLBACK.md` with the exact commands for your host. Nothing was deleted, and your n8n data never moved.
 
@@ -438,6 +463,26 @@ Usually a mismatch between what Prism has and what Keycloak sends:
 - **ACS URL** must be `https://<host>/auth/realms/n8n/broker/prism/endpoint`.
 - **Signature validation failed** — the certificate in the realm is not the one Prism signs with. Most often Prism rotated its key after you installed. Fastest fix, if you installed from a metadata **URL**: open Keycloak → Identity Providers → `prism` and re-save, so it re-reads the descriptor. Otherwise re-fetch the metadata (or re-download the certificate) and paste the new value into **Signing Certificate**. Confirm what Prism publishes today with the check command from [Step 2](#check-the-metadata-before-you-go-further).
 
+### Prism rejects the request before showing a login page
+
+You are bounced to Prism and get an error there — no login form, no MFA prompt. The usual cause is the AuthnRequest signature: Prism's realm sets `WantAuthnRequestsSigned="true"`, Keycloak signs the request, but Prism has no certificate to check it against.
+
+Fix it by completing [Step 7](#step-7--give-prism-the-sp-certificate) — give your Prism admin the SP descriptor URL so they can import the certificate against the n8n application.
+
+Confirm from your side that the request really is signed:
+
+```bash
+docker compose -p n8n-sso logs keycloak | grep -i saml | tail
+```
+
+and that the descriptor Prism needs is being served:
+
+```bash
+curl -s https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint/descriptor | grep -c X509Certificate
+```
+
+`1` or more means Keycloak is publishing its signing certificate correctly, and the missing half is on the Prism side.
+
 ### Signed in at Prism, then "You do not have permission"
 
 The gate authenticated you but the allow-list refused you — almost always because **no email attribute arrived**, so `email_domains` had nothing to match.
@@ -490,7 +535,7 @@ sudo sed -i 's/^N8N_TAG=.*/N8N_TAG=2.34.7/' .env
 docker compose -p n8n-sso pull n8n && docker compose -p n8n-sso up -d n8n
 ```
 
-Re-run the checks in Step 7 afterwards, especially a webhook.
+Re-run the checks in Step 8 afterwards, especially a webhook.
 
 ### Upgrading the gateway
 

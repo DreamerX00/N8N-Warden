@@ -82,6 +82,20 @@ Two points worth being precise about, because they are easy to get wrong:
 
 So metadata is an **input convenience**, not a runtime substitute. When you give it as a URL the installer additionally records `metadataDescriptorUrl` with `useMetadataDescriptorUrl=true`, so Keycloak can re-read the descriptor and pick up a **rotated signing key** without a redeploy — belt and braces on top of the certificate it already extracted.
 
+## Prism requires signed AuthnRequests — give it our certificate
+
+Prism's realm descriptor sets `WantAuthnRequestsSigned="true"`, so the login request must be signed by this Keycloak. The realm does that (`wantAuthnRequestsSigned`, `RSA_SHA256`, key referenced by `KEY_ID`) — verified on 26.7.1: the generated AuthnRequest carries a `<ds:Signature>` using `rsa-sha256`, with the certificate embedded.
+
+Prism still needs the matching certificate to check it against. Keycloak publishes it, so once the stack is up send your Prism admin this URL:
+
+```
+https://n8n.example.com/auth/realms/n8n/broker/prism/endpoint/descriptor
+```
+
+It serves an `<SPSSODescriptor AuthnRequestsSigned="true" WantAssertionsSigned="true">` carrying the signing certificate and the ACS URL. Importing it against the n8n application is all that is required. Turning **client signature required** off for that application also works, but discards a check you otherwise get for free.
+
+Until that is done Prism rejects the request *before* rendering a login page, which reads as a broken integration rather than a missing certificate.
+
 ## Configure
 
 **1. Fill in `realm-n8n.json`** — five values, all marked `REPLACE-ME`:
