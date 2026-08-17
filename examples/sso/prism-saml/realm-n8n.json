@@ -1,0 +1,172 @@
+{
+  "realm": "n8n",
+  "enabled": true,
+  "displayName": "n8n via CloudKeeper Prism",
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": false,
+  "clients": [
+    {
+      "clientId": "n8n-gateway",
+      "name": "n8n SSO gateway (oauth2-proxy)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "REPLACE-ME-same-value-as-OIDC_CLIENT_SECRET-in-.env",
+      "redirectUris": [
+        "https://REPLACE-ME.example.com/oauth2/callback"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "groups",
+            "jsonType.label": "String",
+            "usermodel.clientRoleMapping.clientId": "n8n-gateway",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "prism-groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "user.attribute": "prism-groups",
+            "claim.name": "groups",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "identityProviders": [
+    {
+      "alias": "prism",
+      "displayName": "CloudKeeper Prism",
+      "providerId": "saml",
+      "enabled": true,
+      "trustEmail": true,
+      "storeToken": false,
+      "linkOnly": false,
+      "firstBrokerLoginFlowAlias": "first broker login",
+      "config": {
+        "entityId": "https://REPLACE-ME.example.com/auth/realms/n8n",
+        "singleSignOnServiceUrl": "https://REPLACE-ME-prism-sso-url.cloudkeeper.com/sso/saml",
+        "singleLogoutServiceUrl": "https://REPLACE-ME-prism-slo-url.cloudkeeper.com/sso/logout",
+        "signingCertificate": "REPLACE-ME-paste-the-base64-body-of-Prism-x509-cert-one-line-no-BEGIN-END-headers",
+        "validateSignature": "true",
+        "wantAssertionsSigned": "true",
+        "wantAssertionsEncrypted": "false",
+        "forceAuthn": "false",
+        "postBindingResponse": "true",
+        "postBindingAuthnRequest": "true",
+        "postBindingLogout": "true",
+        "nameIDPolicyFormat": "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+        "principalType": "SUBJECT",
+        "syncMode": "FORCE"
+      }
+    }
+  ],
+  "identityProviderMappers": [
+    {
+      "name": "email",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "email",
+        "user.attribute": "email"
+      }
+    },
+    {
+      "name": "firstName",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "firstName",
+        "user.attribute": "firstName"
+      }
+    },
+    {
+      "name": "lastName",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "lastName",
+        "user.attribute": "lastName"
+      }
+    },
+    {
+      "name": "groups",
+      "identityProviderAlias": "prism",
+      "identityProviderMapper": "saml-user-attribute-idp-mapper",
+      "config": {
+        "syncMode": "FORCE",
+        "attribute.name": "groups",
+        "user.attribute": "prism-groups"
+      }
+    }
+  ],
+  "browserFlow": "browser-prism",
+  "authenticationFlows": [
+    {
+      "alias": "browser-prism",
+      "description": "browser based authentication, redirected straight to Prism",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "identity-provider-redirector",
+          "authenticatorConfig": "prism-redirector",
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "autheticatorFlow": false,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "alias": "prism-redirector",
+      "config": {
+        "defaultProvider": "prism"
+      }
+    }
+  ]
+}

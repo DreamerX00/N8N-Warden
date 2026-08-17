@@ -32,8 +32,13 @@ services:
 
   # ── Auth engine: OIDC relying party, called by Caddy's forward_auth ────
   oauth2-proxy:
-    # >= 7.11.0 — earlier versions carry CVE-2025-54576 (skip-route auth bypass)
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.11.0
+    # Pin >= 7.15.2. The fixes that matter for THIS topology, in order:
+    #   7.11.0  CVE-2025-54576 — skip_auth_routes matched the query string too
+    #   7.13.0  CVE-2025-64484 — request header smuggling
+    #   7.15.2  CRITICAL — X-Forwarded-Uri spoofing auth bypass, session
+    #           fixation, health-check user-agent bypass. Directly exploitable
+    #           in forward-auth deployments like this one.
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
     container_name: n8n-sso-oauth2-proxy
     restart: unless-stopped
     command: --config=/oauth2-proxy.cfg
@@ -53,9 +58,17 @@ services:
 
   # ── n8n itself: completely unmodified, not published to the host ───────
   n8n:
-    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-2.34.5}
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-2.34.6}
     container_name: n8n
     restart: unless-stopped
+    # Testing-matrix step 10 checks `docker inspect n8n` for health — without
+    # this there is no health status to inspect.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     environment:
       - N8N_HOST=${N8N_DOMAIN}
       - N8N_PROTOCOL=https

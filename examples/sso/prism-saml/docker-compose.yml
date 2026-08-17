@@ -1,0 +1,101 @@
+# ─────────────────────────────────────────────────────────────────────────
+#  CloudKeeper Prism → n8n SSO — the SAML broker
+#
+#  Prism issues SAML 2.0 assertions to third-party apps ("Custom Applications"
+#  in the Prism admin portal). oauth2-proxy speaks OIDC and ONLY OIDC. This
+#  compose file adds the one missing piece — Keycloak as a protocol broker:
+#
+#      Browser → edge (Caddy|nginx) → oauth2-proxy   [OIDC relying party]
+#                                   → Keycloak       [OIDC provider  ⇄  SAML SP]
+#                                   → Prism          [SAML 2.0 IdP, MFA lives here]
+#                                   → n8n            [unmodified]
+#
+#  It is ADDITIVE: nothing in ../docker-compose.yml, ../Caddyfile,
+#  ../oauth2-proxy.cfg or ../nginx-alb/ changes shape. You point
+#  OIDC_ISSUER_URL at Keycloak instead of at your IdP, and Keycloak does the
+#  SAML talking. Keycloak stores no passwords — Prism remains the only place a
+#  user ever types a credential.
+#
+#  Keycloak is served under /auth/* on the SAME hostname as n8n, so this needs
+#  no second DNS record and no second TLS certificate. The edge configs already
+#  route /auth/* here, un-gated (it *is* the login flow).
+#
+#  Start it alongside the main stack, from examples/sso/:
+#
+#      docker compose -f docker-compose.yml -f prism-saml/docker-compose.yml up -d
+#
+#  Full walkthrough, including the exact Prism admin-portal fields: ./README.md
+# ─────────────────────────────────────────────────────────────────────────
+
+services:
+  keycloak-db:
+    image: postgres:17-alpine
+    container_name: n8n-sso-keycloak-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?set KC_DB_PASSWORD in .env}
+    volumes:
+      - keycloak_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    # 26.7+ — carries the SAML broker fixes (a disabled SAML IdP could still
+    # complete IdP-initiated logins; encrypted assertions are now checked to be
+    # properly signed). Both matter when your IdP is SAML.
+    image: quay.io/keycloak/keycloak:26.7
+    container_name: n8n-sso-keycloak
+    restart: unless-stopped
+    command: start --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak-db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KC_DB_PASSWORD}
+      # Public base URL. Keycloak builds every redirect and the OIDC issuer
+      # from this — if it's wrong, login loops or the issuer won't match.
+      KC_HOSTNAME: https://${N8N_DOMAIN}/auth
+      KC_HTTP_RELATIVE_PATH: /auth
+      # TLS is terminated at the edge; Keycloak speaks HTTP behind it and
+      # trusts X-Forwarded-*. Only the edge can reach it (no published port).
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      # First-boot admin, for the Keycloak console at /auth/admin/. Change it,
+      # or drop these two lines after the realm is imported and working.
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?set KC_ADMIN_PASSWORD in .env}
+    volumes:
+      # Imported ONCE, on the first boot with an empty database. Later edits to
+      # this file do nothing — change the realm in the admin console after that
+      # (or wipe the keycloak_db volume to re-import from scratch).
+      - ./prism-saml/realm-n8n.json:/opt/keycloak/data/import/realm-n8n.json:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    # The image ships no curl/wget — bash's /dev/tcp is what's available.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /auth/health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3; grep -q '\"status\": \"UP\"' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    expose:
+      - "8080"
+
+  # oauth2-proxy must not start until the realm's discovery document is
+  # servable — it fetches /.well-known/openid-configuration at startup and
+  # exits if that fails. This override adds only the dependency; every other
+  # setting still comes from ../docker-compose.yml.
+  oauth2-proxy:
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+volumes:
+  keycloak_db:

@@ -241,7 +241,11 @@ Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full layer map and design note
 
 **What does *not* work, and why not.** **SSO / SAML / LDAP / OIDC cannot be enabled this way**, and n8n-warden won't pretend otherwise. Those gates sit *in the login path itself*: the auth handlers check the licence on every request, the modules don't even register their routes when unlicensed, and the check is backed by a cryptographically-signed certificate — not a database flag. Verified empirically: writing LDAP config to the DB, n8n overrides `authenticationMethod` back to `email` on boot. Worse, forcing it would **lock every non-owner out of the instance.** If you need SSO on free CE, put an external auth proxy (OAuth2-proxy, Authelia, your IdP) *in front* of n8n instead.
 
-> **Need SSO anyway?** You don't have to defeat anything — put your IdP *in front* of n8n. A ready-to-deploy gateway (Caddy + oauth2-proxy + your IdP, n8n unmodified) lives in [`examples/sso/`](examples/sso/README.md): real SAML/OIDC SSO with MFA on free CE, webhooks still working.
+> **Need SSO anyway?** You don't have to defeat anything — put your IdP *in front* of n8n. A ready-to-deploy gateway (Caddy or nginx/ALB + oauth2-proxy + your IdP, n8n unmodified) lives in [`examples/sso/`](examples/sso/README.md): real SAML/OIDC SSO with MFA on free CE, webhooks still working. **SAML-only IdP — including CloudKeeper Prism** — is covered by [`examples/sso/prism-saml/`](examples/sso/prism-saml/README.md), which brokers SAML into OIDC with Keycloak and ships a one-command installer:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/DreamerX00/N8N-Warden/main/examples/sso/prism-saml/install.sh | sudo bash
+> ```
 
 **The line this tool will not cross.** It writes rows through n8n's documented schema. It does **not** patch the n8n binary, forge a licence certificate, or touch any `.ee`-licensed code. That boundary is deliberate and permanent.
 

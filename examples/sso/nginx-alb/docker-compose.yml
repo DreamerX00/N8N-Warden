@@ -9,11 +9,21 @@
 #  Both services bind to 127.0.0.1 so only your local nginx can reach them,
 #  never the internet directly. If your nginx is itself a container, put all
 #  three on one compose network and use service names instead (see n8n-sso.conf).
+#
+#  ⚠  ALWAYS start this with an explicit --env-file, from examples/sso/:
+#
+#      docker compose --env-file .env -f nginx-alb/docker-compose.yml up -d
+#
+#  Compose resolves the implicit .env next to THIS file (nginx-alb/), not your
+#  shell's cwd, and `env_file:` does NOT feed ${VAR} interpolation. Omit the
+#  flag and every ${...} below silently becomes "" — oauth2-proxy boots with a
+#  blank client id and a redirect of "https:///oauth2/callback", and the only
+#  symptom is an opaque error at your IdP.
 # ─────────────────────────────────────────────────────────────────────────
 
 services:
   oauth2-proxy:
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.11.0   # >= 7.11.0 (CVE-2025-54576)
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3   # >= 7.15.2 — see ../docker-compose.yml for why
     container_name: n8n-sso-oauth2-proxy
     restart: unless-stopped
     command: --config=/oauth2-proxy.cfg
@@ -32,9 +42,15 @@ services:
 
   # Optional — omit if n8n already runs on this host / behind this nginx.
   n8n:
-    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-2.34.5}
+    image: docker.n8n.io/n8nio/n8n:${N8N_TAG:-2.34.6}
     container_name: n8n
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     environment:
       - N8N_HOST=${N8N_DOMAIN}
       - N8N_PROTOCOL=https

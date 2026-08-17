@@ -14,18 +14,35 @@
 {$N8N_DOMAIN} {
 	encode zstd gzip
 
+	# ── Strip client-supplied copies of every header the auth layer trusts ──
+	# Runs before any route below (Caddy orders header directives ahead of
+	# reverse_proxy/forward_auth), so a caller can never inject its own identity
+	# or forge the URI the auth check is evaluated against. oauth2-proxy 7.15.2
+	# fixed an auth bypass in exactly this class (X-Forwarded-Uri spoofing) —
+	# this is the belt to that braces.
+	request_header -X-Auth-Request-User
+	request_header -X-Auth-Request-Email
+	request_header -X-Auth-Request-Preferred-Username
+	request_header -X-Auth-Request-Groups
+	request_header -X-Forwarded-Uri
+	request_header -X-Forwarded-Method
+
 	# ── BYPASS: non-interactive callers that cannot do an interactive login ──
 	# Verified present on n8n 2.34.5. Anchored to path prefixes so the editor
 	# and /rest/* can never be reached through one of these matchers.
 	@public {
-		path /webhook/*  /webhook-test/*  /webhook-waiting/*
-		path /form/*     /form-test/*     /form-waiting/*
-		path /mcp/*      /mcp-test/*
-		path /healthz    /healthz/*       /metrics
+		path /webhook/* /webhook-test/* /webhook-waiting/*
+		path /form/* /form-test/* /form-waiting/*
+		path /mcp/* /mcp-test/*
+		path /healthz /healthz/* /metrics
 		# n8n's OWN credential-OAuth callback (Google Sheets etc.). Fires as a
 		# browser redirect while the user still holds their session — but the
 		# IdP redirect can strip the cookie, so we let it through explicitly.
-		path /rest/oauth2-credential/callback  /rest/oauth1-credential/callback
+		path /rest/oauth2-credential/callback /rest/oauth1-credential/callback
+		# Public API — authenticates with X-N8N-API-KEY, not the gateway cookie.
+		# Gating it would break every script/CI caller. Delete this line to force
+		# API traffic through SSO too (then your API callers stop working).
+		path /api/*
 	}
 	handle @public {
 		reverse_proxy n8n:5678
@@ -35,6 +52,15 @@
 	# Must always be reachable unauthenticated, or login can never complete.
 	handle /oauth2/* {
 		reverse_proxy oauth2-proxy:4180
+	}
+
+	# ── Keycloak, only when you run the prism-saml/ variant ────────────────
+	# The SAML broker lives under /auth/* on this same hostname (no second DNS
+	# record, no second cert). Un-gated for the same reason /oauth2/* is: it IS
+	# the login flow. n8n serves nothing under /auth, so this never shadows it.
+	# Without the prism-saml stack running, nothing ever routes here.
+	handle /auth/* {
+		reverse_proxy {$KEYCLOAK_UPSTREAM:keycloak:8080}
 	}
 
 	# ── GATED: the editor UI, /rest/* (incl. the /rest/push WebSocket) ─────
