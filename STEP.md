@@ -38,6 +38,7 @@ Collect these before you start — Steps 2, 3 and 6 each depend on one of them.
 | **Your public hostname**                 | the name users type, e.g.`n8n.example.com`. Must already resolve to your ALB. |
 | **Ability to edit the ALB target group** | Step 6                                                                          |
 | **Docker + Compose v2**                  | already present if n8n runs under Compose                                       |
+| **Prism IdP metadata**                   | produced in Step 2. A URL is ideal; a downloaded `.xml` is fine. It carries both the SSO URL and the signing certificate, so it is the only SAML input you need. |
 
 Check the host is ready:
 
@@ -125,6 +126,43 @@ scp prism.crt ec2-user@your-host:/root/prism.crt
 
 > **The certificate is not optional either way.** It is what lets Keycloak tell a genuine Prism assertion from a forged one; without it, anyone could sign in as anyone. Metadata is simply a tidier way to deliver it. The **SSO URL is also always needed** — Keycloak stores it and builds every login request from the stored value rather than looking it up in metadata.
 
+### Check the metadata before you go further
+
+Two minutes here saves a failed cutover. Run this on the host, against your URL or file — it prints exactly what the installer will extract:
+
+```bash
+curl -fsSL 'https://<prism-metadata-url>' | python3 -c "
+import sys, re, xml.etree.ElementTree as ET
+MD='{urn:oasis:names:tc:SAML:2.0:metadata}'; DS='{http://www.w3.org/2000/09/xmldsig#}'
+x = ET.fromstring(sys.stdin.buffer.read())
+d = x if x.tag == MD+'IDPSSODescriptor' else x.find('.//'+MD+'IDPSSODescriptor')
+if d is None: sys.exit('no IDPSSODescriptor — this is not IdP metadata')
+c = d.find('.//'+DS+'X509Certificate')
+print('entity :', x.get('entityID',''))
+for s in d.findall(MD+'SingleSignOnService'): print('sso    :', s.get('Location'))
+for s in d.findall(MD+'SingleLogoutService'): print('logout :', s.get('Location'))
+print('cert   :', len(re.sub(r'\s','', c.text or '')) if c is not None else 'MISSING — Keycloak cannot verify assertions')
+"
+```
+
+Reading a downloaded file instead? Swap the `curl` for `cat /root/prism-metadata.xml |`.
+
+Healthy output looks like this:
+
+```
+entity : https://prism.example.com/idp
+sso    : https://prism.example.com/sso/saml
+logout : https://prism.example.com/slo
+cert   : 1020
+```
+
+What to look for:
+
+- **`cert` is a number, not `MISSING`.** A descriptor with no signing certificate cannot be used — go back to Prism and get the certificate separately.
+- **`sso` is present**, and is a Prism URL you recognise.
+- **`entity`** is Prism's own entity ID. This is *not* the Client ID you entered above; that one identifies n8n to Prism, this one identifies Prism to n8n.
+- **`no IDPSSODescriptor`** means you fetched the wrong document — often the *service provider* metadata, or an HTML login page returned by a URL that needed authentication. Metadata must be reachable unauthenticated for the installer to fetch it; if it is not, download the file and pass the path instead.
+
 ### Assign your users
 
 Still in Prism, grant the users or groups who should reach n8n access to this application. Anyone without it will authenticate at Prism and then be refused at the gate.
@@ -156,6 +194,16 @@ It reads your running deployment and **pre-fills every answer it can work out**.
 | 8  | **Path to Prism's certificate**                      | Skipped entirely when the metadata already supplied it. Otherwise `/root/prism.crt` — pre-filled if a certificate was found on the host. |
 | 9  | **Email domain allowed to reach n8n**                | e.g.`example.com`. Only users whose Prism email ends in this get past the gate. Enter `-` to gate on a group instead (see [Step 9](#step-9--hardening)). |
 | 10 | **Timezone**                                         | Pre-filled from your container or the host. Drives Cron/Schedule nodes.                                                                                     |
+
+When you answer prompt 5 with metadata, it confirms what it found before moving on:
+
+```
+   Prism IdP metadata — URL or file path: https://prism.example.com/idp/metadata
+   ✔ metadata parsed: SSO URL and a 1020-char signing certificate, plus a logout URL
+   Prism SSO URL: https://prism.example.com/sso/saml   (read from the metadata you supplied)
+```
+
+If that certificate length looks wrong, or the SSO URL is not what Prism shows on the application page, stop and re-check the metadata — everything downstream is built from these two values.
 
 Then it prints a **review block** and asks to proceed. **Read it.** Nothing has changed on the host up to this point — answering anything but `y` exits cleanly.
 
@@ -388,7 +436,7 @@ Usually a mismatch between what Prism has and what Keycloak sends:
 
 - **Client ID / Entity ID** must match exactly, character for character.
 - **ACS URL** must be `https://<host>/auth/realms/n8n/broker/prism/endpoint`.
-- **Signature validation failed** — the certificate in the realm is not the one Prism signs with. Re-download it and update Keycloak → Identity Providers → prism → Signing Certificate.
+- **Signature validation failed** — the certificate in the realm is not the one Prism signs with. Most often Prism rotated its key after you installed. Fastest fix, if you installed from a metadata **URL**: open Keycloak → Identity Providers → `prism` and re-save, so it re-reads the descriptor. Otherwise re-fetch the metadata (or re-download the certificate) and paste the new value into **Signing Certificate**. Confirm what Prism publishes today with the check command from [Step 2](#check-the-metadata-before-you-go-further).
 
 ### Signed in at Prism, then "You do not have permission"
 
@@ -450,7 +498,20 @@ Watch oauth2-proxy's security releases — its bugs are authentication bypasses.
 
 ### When Prism rotates its signing certificate
 
-Update it in the Keycloak console: realm `n8n` → Identity Providers → `prism` → Signing Certificate. Editing `realm-n8n.json` does nothing after the first import — the realm lives in the database from then on.
+Every login stops working the moment the key changes, so it is worth knowing which case you are in before it happens.
+
+**If you installed from a metadata URL**, the realm also carries `metadataDescriptorUrl` with `useMetadataDescriptorUrl=true`, so Keycloak can re-read the descriptor and pick the new key up on its own. Check it is set:
+
+```bash
+docker exec n8n-sso-keycloak sh -c 'echo' >/dev/null   # keycloak is up?
+grep -o '"metadataDescriptorUrl": "[^"]*"' /opt/n8n-sso/keycloak/realm-n8n.json
+```
+
+That file is the *first-boot* copy, so it tells you what was configured at install time. The live value lives in the database — confirm and, if a rotation has not been picked up, force a re-read by opening realm `n8n` → Identity Providers → `prism` in the console and saving it.
+
+**If you installed from a certificate file**, rotation is manual: fetch Prism's current certificate, then paste it into realm `n8n` → Identity Providers → `prism` → **Signing Certificate**. The check command in [Step 2](#check-the-metadata-before-you-go-further) prints what Prism publishes right now.
+
+Either way, **editing `realm-n8n.json` does nothing after the first import** — the realm lives in the database from then on. Change it in the console, or wipe the `keycloak_db` volume to re-import from scratch.
 
 ### Re-running the installer
 
@@ -476,6 +537,8 @@ docker compose -p n8n-sso logs -f keycloak       # SAML exchange with Prism
 | `/opt/n8n-sso/nginx/n8n-sso.conf`      | **the auth boundary** — which paths are gated and which bypass |
 | `/opt/n8n-sso/oauth2-proxy.cfg`        | who is allowed in                                                     |
 | `/opt/n8n-sso/keycloak/realm-n8n.json` | the realm as first imported (later changes live in the DB)            |
+| `/opt/n8n-sso/keycloak/prism-cert.b64` | the signing certificate, as extracted — reused on a re-run so you are not asked for it twice |
+| `/opt/n8n-sso/.prism-metadata.xml`     | the metadata document as fetched, if you supplied one                 |
 | `/opt/n8n-sso/backups/<timestamp>/`    | pre-install backups of n8n data and`/etc/nginx`                     |
 | `/opt/n8n-sso/ROLLBACK.md`             | generated undo instructions                                           |
 | `/opt/n8n-sso/src/`                    | this repository, as cloned by the installer                           |
