@@ -5,7 +5,7 @@ A start-to-finish deployment guide: from an EC2 box running n8n with nginx on th
 Follow it top to bottom. Every command is meant to be pasted as-is; every value you have to supply is called out with where to find it.
 
 **Time:** about 30 minutes, most of it waiting for containers.
-**Downtime:** roughly 1–2 minutes, during Step 5.
+**Downtime:** roughly 1–2 minutes, during the cutover in [Step 3](#step-3--run-the-installer).
 **Reversible:** yes, completely — see [Step 10](#step-10--rollback).
 
 ---
@@ -29,7 +29,7 @@ Four moving parts get added — nginx moves into Docker Compose, and oauth2-prox
 
 ## Step 0 — Before you begin
 
-Collect these. Steps 2 and 4 will not work without them.
+Collect these before you start — Steps 2, 3 and 6 each depend on one of them.
 
 | You need | Where it comes from |
 |---|---|
