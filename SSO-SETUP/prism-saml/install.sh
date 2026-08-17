@@ -38,6 +38,7 @@ PUBLIC_SCHEME="${PUBLIC_SCHEME:-https}"     # http only for local testing
 HTTP_PORT="${HTTP_PORT:-}"                  # host port the nginx container binds
 BEHIND_ALB="${BEHIND_ALB:-}"                # yes|no → N8N_PROXY_HOPS 2|1
 PRISM_SSO_URL="${PRISM_SSO_URL:-}"
+SP_ENTITY_ID="${SP_ENTITY_ID:-}"      # must equal the client ID Prism has for n8n
 PRISM_SLO_URL="${PRISM_SLO_URL:-}"
 PRISM_SIGNING_CERT="${PRISM_SIGNING_CERT:-}"
 ALLOWED_EMAIL_DOMAIN="${ALLOWED_EMAIL_DOMAIN:-}"
@@ -239,7 +240,7 @@ PREV_DOMAIN="$(prev N8N_DOMAIN)"; PREV_URL="$(prev PUBLIC_URL)"
 PREV_PORT="$(prev HTTP_PORT)"; PREV_HOPS="$(prev N8N_PROXY_HOPS)"
 PREV_TZ="$(prev GENERIC_TIMEZONE)"; PREV_SSO="$(prev PRISM_SSO_URL)"
 PREV_SLO="$(prev PRISM_SLO_URL)"; PREV_MAIL="$(prev ALLOWED_EMAIL_DOMAIN)"
-PREV_TAG="$(prev N8N_TAG)"
+PREV_TAG="$(prev N8N_TAG)"; PREV_ENTITY="$(prev SP_ENTITY_ID)"
 # Re-runs must not silently switch scheme: take it from the previous PUBLIC_URL
 # unless this run explicitly pinned one.
 if [ -z "$PUBLIC_SCHEME_EXPLICIT" ] && [ -n "$PREV_URL" ]; then
@@ -299,8 +300,13 @@ cat <<EOF
      Single Logout URL: ${PUBLIC_URL}/auth/realms/n8n/broker/prism/endpoint
      Relay State      : ${PUBLIC_URL}/
 
-   Save it, then come back with the SSO URL and the X.509 certificate Prism
-   shows you on that application's page.
+   Save it, then come back with the metadata URL (easiest — it carries the SSO
+   URL and the certificate), or the SSO URL and certificate separately.
+
+   If Prism is itself Keycloak, it may hand you a "Login URL" ending in
+   /protocol/saml/clients/<name>. That is the IdP-INITIATED entry point and is
+   NOT the SSO URL to use here; the right one is the realm's SingleSignOnService,
+   /realms/<realm>/protocol/saml, which the metadata gives you automatically.
 EOF
 printf '%s└──────────────────────────────────────────────────────────────────┘%s\n' "$B$C" "$X"
 
@@ -364,6 +370,14 @@ PY
   case "$PRISM_META" in http://*|https://*) PRISM_META_URL="$PRISM_META" ;; esac
 fi
 PRISM_META_URL="${PRISM_META_URL:-}"
+
+ask SP_ENTITY_ID "SP entity ID — must match the client ID registered in Prism" \
+"The identifier this Keycloak puts in the AuthnRequest's Issuer. Prism matches it
+   against the SAML client it has for n8n; if they differ, Prism rejects the login
+   before showing a page. Suggested value below — but if whoever configured Prism
+   used something else (a short name like 'automata', say), enter THEIR value." \
+  "$(first "$PREV_ENTITY" "${PUBLIC_URL}/auth/realms/n8n")" \
+  "$( [ -n "$PREV_ENTITY" ] && echo 'previous install' || echo 'derived from your hostname' )"
 
 ask PRISM_SSO_URL "Prism SSO URL" \
 "From the Custom Application you created in Prism — the endpoint Keycloak POSTs
@@ -452,6 +466,7 @@ cat <<EOF
    n8n image         : docker.n8n.io/n8nio/n8n:${N8N_TAG}
    n8n data          : ${N8N_DATA_KIND} ${N8N_DATA_SOURCE}  (reused, backed up first)
    N8N_PROXY_HOPS    : ${PROXY_HOPS}
+   SP entity ID      : ${SP_ENTITY_ID}
    Prism SSO URL     : ${PRISM_SSO_URL}
    Prism SLO URL     : ${PRISM_SLO_URL:-（none）}
    Allowed email dom : ${ALLOWED_EMAIL_DOMAIN}
@@ -544,7 +559,7 @@ c = d["clients"][0]
 c["secret"] = """${OIDC_CLIENT_SECRET}"""
 c["redirectUris"] = ["""${PUBLIC_URL}/oauth2/callback"""]
 cfg = d["identityProviders"][0]["config"]
-cfg["entityId"] = """${PUBLIC_URL}/auth/realms/n8n"""
+cfg["entityId"] = """${SP_ENTITY_ID}"""
 cfg["singleSignOnServiceUrl"] = """${PRISM_SSO_URL}"""
 cfg["signingCertificate"] = """${PRISM_SIGNING_CERT}"""
 meta_url = """${PRISM_META_URL}"""
@@ -586,6 +601,7 @@ KC_ADMIN_PASSWORD=${KC_ADMIN_PASSWORD}
 PRISM_SSO_URL=${PRISM_SSO_URL}
 PRISM_SLO_URL=${PRISM_SLO_URL}
 ALLOWED_EMAIL_DOMAIN=${ALLOWED_EMAIL_DOMAIN}
+SP_ENTITY_ID=${SP_ENTITY_ID}
 EOF
 chmod 600 "$INSTALL_DIR/.env"
 printf '%s' "$PRISM_SIGNING_CERT" > "$INSTALL_DIR/keycloak/prism-cert.b64"
