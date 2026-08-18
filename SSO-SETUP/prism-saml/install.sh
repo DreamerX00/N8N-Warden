@@ -186,10 +186,24 @@ if [ -n "$N8N_CONTAINER" ]; then
   DET_WEBHOOK="$(cenv "$N8N_CONTAINER" WEBHOOK_URL)"
   [ -z "$DET_HOST" ] && [ -n "$DET_WEBHOOK" ] && DET_HOST="$(printf '%s' "$DET_WEBHOOK" | sed -E 's#^[a-z]+://##; s#[:/].*##')"
   [ -n "$DET_HOST" ] && ok "n8n already knows its hostname: $DET_HOST"
+  # Anything else the operator had set on n8n is their choice, not ours to
+  # silently change. Container env minus image env = what was set at run time;
+  # we keep all of it except the handful of vars the new compose block manages.
+  # Getting this wrong once cost a production instance: an added
+  # DB_SQLITE_POOL_SIZE broke insights writes, which leaked until n8n hit the
+  # 2 GB V8 heap limit and aborted every ~35 minutes.
+  N8N_IMAGE_REF="$(docker inspect -f '{{.Config.Image}}' "$N8N_CONTAINER" 2>/dev/null || true)"
+  N8N_CARRY="$(comm -23 \
+      <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$N8N_CONTAINER" 2>/dev/null | sort -u) \
+      <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$N8N_IMAGE_REF"   2>/dev/null | sort -u) \
+    | grep -E '^[A-Za-z_][A-Za-z0-9_]*=' \
+    | grep -vE '^(N8N_HOST|N8N_PROTOCOL|N8N_PORT|N8N_EDITOR_BASE_URL|WEBHOOK_URL|N8N_SECURE_COOKIE|N8N_PROXY_HOPS|GENERIC_TIMEZONE|TZ)=' \
+    | sed 's/^/      - /')" || true
+  [ -n "$N8N_CARRY" ] && ok "carrying over $(printf '%s\n' "$N8N_CARRY" | grep -c .) existing n8n setting(s)"
 else
   warn "no existing n8n container found — a fresh one will be created with a new volume"
   N8N_DATA_KIND="volume"; N8N_DATA_SOURCE="${COMPOSE_PROJECT}_n8n_data"
-  DET_HOST=""; DET_PROTO=""; DET_HOPS=""; DET_TZ=""
+  DET_HOST=""; DET_PROTO=""; DET_HOPS=""; DET_TZ=""; N8N_CARRY=""
 fi
 
 # How is n8n reachable *today*? If it publishes a host port, your load balancer
@@ -757,16 +771,15 @@ ${EXTRA_HOSTS_BLOCK}
     restart: unless-stopped
     environment:
       - N8N_HOST=\${N8N_DOMAIN}
-      - N8N_PROTOCOL=$([ "$PUBLIC_SCHEME" = https ] && echo https || echo http)
+      - N8N_PROTOCOL=$(first "$DET_PROTO" "$PUBLIC_SCHEME" http)
       - N8N_PORT=5678
-      - N8N_EDITOR_BASE_URL=\${PUBLIC_URL}/
-      - WEBHOOK_URL=\${PUBLIC_URL}/
+      - N8N_EDITOR_BASE_URL=\${PUBLIC_URL}
+      - WEBHOOK_URL=\${PUBLIC_URL}
       - N8N_SECURE_COOKIE=\${N8N_SECURE_COOKIE}
       - N8N_PROXY_HOPS=\${N8N_PROXY_HOPS}
       - GENERIC_TIMEZONE=\${GENERIC_TIMEZONE}
       - TZ=\${GENERIC_TIMEZONE}
-      - N8N_RUNNERS_ENABLED=true
-      - DB_SQLITE_POOL_SIZE=10
+${N8N_CARRY}
     volumes:
 ${N8N_MOUNT}
     healthcheck:
