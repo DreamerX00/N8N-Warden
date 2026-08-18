@@ -431,5 +431,7 @@
         "defaultProvider": "prism"
       }
     }
-  ]
+  ],
+  "accessCodeLifespanLogin": 3600,
+  "accessCodeLifespanUserAction": 1800
 }
