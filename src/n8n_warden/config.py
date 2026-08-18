@@ -22,7 +22,7 @@ SIDECARS = (f"{DB_NAME}-wal", f"{DB_NAME}-shm")
 STATE_DIR = Path(os.environ.get("N8N_WARDEN_HOME", Path.home() / ".warden"))
 SNAP_DIR = STATE_DIR / "snapshots"
 JOURNAL = STATE_DIR / "journal.jsonl"
-MAX_SNAPSHOTS = 20
+MAX_SNAPSHOTS = 2   # current + previous; older snapshots are deleted after each new one
 
 # --- schema facts --------------------------------------------------------
 # Tables this tool writes to, with their primary keys. Drives the undo journal:

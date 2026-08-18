@@ -359,11 +359,14 @@ def menu_credentials(inst: Instance) -> None:
     say("    1 transfer   2 share   3 unshare   4 show access")
     action = ask("action")
 
+    verb = {"1": "transfer", "2": "share", "3": "unshare"}.get(action)
+    if not verb and action != "4":
+        return
+
+    label = lambda c: f"{c['name'][:34].ljust(36)} {dim(c['type'][:20])}"
     with Workspace(inst, write=False) as db:
-        credential = pick(credentials(db),
-                          lambda c: f"{c['name'][:34].ljust(36)} {dim(c['type'][:20])}",
-                          "credential")
         if action == "4":
+            credential = pick(credentials(db), label, "credential")
             rows = [dict(r) for r in db.q('''
                 SELECT p.name AS project, p.type, s.role FROM shared_credentials s
                 JOIN project p ON p.id=s."projectId" WHERE s."credentialsId"=?''',
@@ -371,24 +374,16 @@ def menu_credentials(inst: Instance) -> None:
             say()
             say(table(rows, ["project", "type", "role"]))
             return
+        picked = pick(credentials(db), label, "credential(s)", multi=True)
         destination = _pick_project(db, "project")
         role = (pick([r for r in roles(db, "credential") if r != "credential:owner"],
                      lambda r: r, "role") if action == "2" else None)
 
-    if action == "1":
-        apply_change(inst,
-                     f"transfer credential {credential['name']!r} → {destination['name']!r}",
-                     lambda db, b: ops.transfer_credential(db, b, credential["id"],
-                                                           destination["id"]))
-    elif action == "2":
-        apply_change(inst,
-                     f"share credential {credential['name']!r} with {destination['name']!r}",
-                     lambda db, b: ops.share_credential(db, b, credential["id"],
-                                                        destination["id"], role))
-    elif action == "3":
-        apply_change(inst, f"unshare credential {credential['name']!r}",
-                     lambda db, b: ops.unshare_credential(db, b, credential["id"],
-                                                          destination["id"]))
+    # One apply_change for the whole selection: one snapshot, one n8n restart.
+    ids = [c["id"] for c in picked]
+    mutate = _bulk_mutation("credential", verb, ids, destination["id"], role, None)
+    apply_change(inst, f"{verb} {len(ids)} credential(s) → {destination['name']!r}",
+                 mutate)
 
 
 def menu_folders(inst: Instance) -> None:
