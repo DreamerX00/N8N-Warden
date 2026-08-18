@@ -102,7 +102,7 @@ Because it edits a live database, the whole design is built around *never* being
                                     breaks one? ──▶ roll back, write nothing
 ```
 
-- **Two independent ways back.** A full DB snapshot before every write batch (`restore`), *and* a row-level undo journal that reverts a batch — and **skips any row that changed since**, so it never clobbers an edit you made in the UI afterwards.
+- **Two independent ways back.** A full DB snapshot before every write batch (`restore`) — the newest two are kept (current and previous), older ones are pruned automatically — *and* a row-level undo journal that reverts a batch — and **skips any row that changed since**, so it never clobbers an edit you made in the UI afterwards.
 - **WAL-safe writes.** The write-back deletes stale `-wal`/`-shm` and swaps the file in a single step; a leftover WAL replayed over a fresh DB is a classic corruption, and this closes it.
 - **Real HTTP health-check**, two stages (`/healthz/readiness` then the editor), because scraping `docker logs` reports the *previous* boot's "ready" line and hides a failed start.
 - **Version gate.** It reads n8n's own `migrations` table and warns before writing if your instance has moved past the versions it's verified against.
@@ -181,7 +181,7 @@ $ ./n8n-warden.pyz transfer wf J23uy... --to "Ops Team" --dry-run
 | **Projects** | `project create · rename · delete · members · add-member · remove-member` |
 | **Users** | `user create · delete · set-role · disable · enable · clear-mfa · clear-password` |
 | **Workflows** | `transfer · share · unshare` (single or `bulk`) |
-| **Credentials** | `transfer · share · unshare` |
+| **Credentials** | `transfer · share · unshare` — the interactive menu multi-selects (`1,2,8,9`, `1,3-5`, `*`), one restart for the whole batch |
 | **Folders** | `folder share · unshare · transfer · list · create · rename · delete` |
 | **Bulk** | selectors: `wf:tag=prod`, `wf:owner=a@b.com`, `cred:type=slackApi`, … |
 | **Audit** | `ls matrix` · `ls orphans` · `export` (who-can-see-what, to JSON) |
