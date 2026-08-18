@@ -501,6 +501,19 @@ Then add the real name as an importer: Keycloak console → realm `n8n` → Iden
 
 Same procedure if group gating is not working — look for the groups attribute and map it to `prism-groups`. Full detail in [`SSO-SETUP/prism-saml/README.md`](SSO-SETUP/prism-saml/README.md#attribute-mapping--how-it-copes-with-not-knowing-prisms-names).
 
+### "Restart login cookie not found"
+
+Almost always a **reused or expired login URL** — the `login-actions/...` links Keycloak generates are single-use and short-lived, so reloading one, or coming back to it after a break, produces this. Start again from `https://n8n.example.com/` in a fresh window; there is nothing to fix.
+
+It is only a configuration fault if it happens on *every* attempt. The cause would then be Keycloak not knowing the connection is HTTPS: Prism returns its assertion as a **cross-site POST**, and the browser only sends cookies on that if they carry `SameSite=None` — which browsers reject unless `Secure` is also set, which Keycloak only sets when it believes the request is secure. Check:
+
+```bash
+curl -sI "https://n8n.example.com/auth/realms/n8n/protocol/openid-connect/auth?client_id=n8n-gateway&response_type=code&scope=openid&redirect_uri=https://n8n.example.com/oauth2/callback&state=x" \
+  | grep -i set-cookie
+```
+
+Healthy output has `Secure` and `SameSite=None` on `AUTH_SESSION_ID` and `KC_RESTART`. If `Secure` is missing, `X-Forwarded-Proto: https` is not reaching Keycloak — confirm the ALB sends it, that `location /auth/` in `/opt/n8n-sso/nginx/n8n-sso.conf` forwards it, and that the container has `KC_PROXY_HEADERS=xforwarded` and an `https://` `KC_HOSTNAME`.
+
 ### Keycloak asks you to complete your profile on first login
 
 Keycloak's first-broker-login prompts only when a required field is **missing** — so this means email, first name or last name did not map. Fill it in to proceed, then fix the mapping with the capture above so later users are not prompted.
