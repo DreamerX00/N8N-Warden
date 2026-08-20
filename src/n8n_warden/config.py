@@ -11,7 +11,7 @@ import os
 import string
 from pathlib import Path
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 # --- n8n container layout ------------------------------------------------
 N8N_DIR = "/home/node/.n8n"
