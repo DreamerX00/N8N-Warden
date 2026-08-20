@@ -16,7 +16,7 @@ from .docker import Instance
 from .errors import Fatal
 from .journal import Batch
 from .model import check_invariants, compat_note
-from .storage import Workspace, snapshot
+from .storage import Workspace, restore, snapshot
 
 
 def apply_change(inst: Instance, action: str, mutate, dry_run: bool = False,
@@ -31,8 +31,10 @@ def apply_change(inst: Instance, action: str, mutate, dry_run: bool = False,
     if dry_run:
         return _preview(inst, action, mutate)
 
+    snap = None
     if not skip_snapshot:
-        ok(f"snapshot {snapshot(inst, action)}")
+        snap = snapshot(inst, action)
+        ok(f"snapshot {snap.name}")
 
     workspace = Workspace(inst, write=True)
     with workspace as db:
@@ -59,8 +61,25 @@ def apply_change(inst: Instance, action: str, mutate, dry_run: bool = False,
         for note in batch.notes:
             step(note)
         say(f"  {green('✎')} {len(batch.entries)} row(s) written")
-        workspace.commit_and_push()
+        try:
+            workspace.commit_and_push()
+        except Exception:
+            # Everything before this point rolls back in a transaction; a
+            # failure mid-push can leave the container holding an inconsistent
+            # database. That is exactly what the snapshot is for.
+            _rescue(inst, snap)
+            raise
         return batch_id
+
+
+def _rescue(inst: Instance, snap) -> None:
+    err("write-back failed — the database in the container may be inconsistent")
+    if snap is None:
+        warn("no snapshot was taken for this change — inspect the database by hand")
+        return
+    if assume_yes() or confirm(f"restore snapshot {snap.name}?", True):
+        # n8n is still stopped here; the workspace restarts it on exit.
+        restore(inst, snap)
 
 
 def _gate_on_version(db) -> None:

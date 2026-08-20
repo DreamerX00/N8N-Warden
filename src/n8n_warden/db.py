@@ -41,6 +41,12 @@ class Db:
         else:
             self.conn = sqlite3.connect(str(path))
         self.conn.row_factory = sqlite3.Row
+        try:
+            # First actual read of the file — a garbage/encrypted/corrupt file
+            # fails here with a message instead of on some later query.
+            self.conn.execute("SELECT 1 FROM sqlite_master LIMIT 1")
+        except sqlite3.DatabaseError:
+            raise Fatal(f"{path} is not a SQLite database")
         self.conn.execute("PRAGMA foreign_keys=ON")
 
     def q(self, sql: str, *params) -> list:

@@ -52,7 +52,9 @@ env/
 Thumbs.db
 
 # Agent / tooling scratch
-.claude/
+# Local Claude state stays out; the project skill ships with the repo.
+.claude/*
+!.claude/skills/
 scratchpad/
 
 # Personal filled-in copy of the deployment guide — never committed.

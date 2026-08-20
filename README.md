@@ -8,10 +8,10 @@
 
 <br/>
 
-![n8n](https://img.shields.io/badge/n8n-2.34.x-EA4B71?style=flat-square&amp;logo=n8n&amp;logoColor=white)
+![n8n](https://img.shields.io/badge/n8n-2.35.x-EA4B71?style=flat-square&amp;logo=n8n&amp;logoColor=white)
 ![python](https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&amp;logo=python&amp;logoColor=white)
 ![dependencies](https://img.shields.io/badge/dependencies-zero-4c1?style=flat-square)
-![self-test](https://img.shields.io/badge/self--test-91%20checks-4c1?style=flat-square)
+![self-test](https://img.shields.io/badge/self--test-98%20checks-4c1?style=flat-square)
 ![sqlite](https://img.shields.io/badge/SQLite-%E2%9C%93-003B57?style=flat-square&amp;logo=sqlite&amp;logoColor=white)
 ![postgres](https://img.shields.io/badge/Postgres-experimental-336791?style=flat-square&amp;logo=postgresql&amp;logoColor=white)
 
@@ -20,7 +20,7 @@
 <br/>
 
 ```
-  ▄▀ n8n-warden 1.1.0   ·  n8n 2.34.5  ·  sqlite  ·  n8n ● up
+  ▄▀ n8n-warden 1.3.0   ·  n8n 2.35.4  ·  sqlite  ·  n8n ● up
   ──────────────────────────────────────────────────────────────
 
      1  Projects               (6)
@@ -33,6 +33,7 @@
      8  Snapshots & undo
      9  Prune & disk space
     10  Doctor
+    11  Update n8n & warden
      0  Quit
 ```
 
@@ -107,8 +108,9 @@ Because it edits a live database, the whole design is built around *never* being
 - **Real HTTP health-check**, two stages (`/healthz/readiness` then the editor), because scraping `docker logs` reports the *previous* boot's "ready" line and hides a failed start.
 - **Version gate.** It reads n8n's own `migrations` table and warns before writing if your instance has moved past the versions it's verified against.
 - **Typed confirmation** for the two operations with unbounded blast radius (`project delete`, `user delete`) — `--yes` deliberately won't skip it.
+- **Rescue on a failed write-back.** If the copy back into the container fails mid-swap — the one window a transaction can't protect — warden offers to restore the snapshot it just took, on the spot.
 - **`doctor` + `doctor --fix`** finds and repairs the exact inconsistencies a botched hand-edit leaves behind.
-- **91-check self-test** against a synthetic database — run it before you ever point the tool at real data.
+- **98-check self-test** against a synthetic database — run it before you ever point the tool at real data.
 
 <br/>
 
@@ -186,7 +188,9 @@ $ ./n8n-warden.pyz transfer wf J23uy... --to "Ops Team" --dry-run
 | **Bulk** | selectors: `wf:tag=prod`, `wf:owner=a@b.com`, `cred:type=slackApi`, … |
 | **Audit** | `ls matrix` · `ls orphans` · `export` (who-can-see-what, to JSON) |
 | **Maintenance** | `prune` · `doctor` · `doctor --fix` |
-| **Recovery** | `history` · `undo` · snapshot restore |
+| **Recovery** | `history` · `undo` · `restore` (roll back to any kept snapshot) |
+| **Updates** | `upgrade [n8n\|nginx\|both]` — move a compose-managed stack to the newest releases, written as **real version tags, never `latest`** (n8n: snapshot first + auto-revert on failure; nginx: tracks the stable line) · `update` — warden updates its own `.pyz` from GitHub releases, and mentions new releases once a day |
+| **Install** | `install [--nginx]` — generate a fresh `docker-compose.yml` (or `docker-compose-nginx.yml` + a WebSocket-and-SSE-correct `nginx.conf`) with live-fetched pinned tags and a named `n8n_data` volume, so every later upgrade keeps your workflows, credentials and encryption key |
 
 </div>
 
@@ -208,6 +212,52 @@ Execution history is typically **99%+** of an n8n database. On the instance this
 ./n8n-warden.pyz doctor              # lists any invariant breaks, each with a stable id
 ./n8n-warden.pyz doctor --fix all    # repairs the fixable ones, in one undoable batch
 ```
+
+<br/>
+
+## Command reference
+
+Every command works the same whether you run `warden` (installed), `./n8n-warden.pyz` (bundle), or `./warden.py` (source checkout). Global flags: `--yes/-y` (skip confirmations), `--json` (machine output for reads), `--dry-run` (on writes: show the row-level plan, write nothing), `--container NAME` (pick one of several n8n containers), `--db-file PATH` (operate on a SQLite file directly, no docker), `--no-color`.
+
+```bash
+# see & inspect
+warden                                    # interactive menu
+warden doctor                             # health, schema drift, invariants
+warden ls projects|users|workflows|credentials|folders|matrix|orphans
+warden export -o access.json              # full who-can-see-what map
+
+# projects & users
+warden project create "Ops Team"
+warden project add-member "Ops Team" --user bob@company.com --role project:editor
+warden user create bob@company.com --first Bob
+warden user set-role bob@company.com --role global:admin
+warden user disable bob@company.com      # and: enable · clear-mfa · clear-password · delete
+
+# sharing & moving (kind is wf or cred; --to takes a project id, name, or email)
+warden share    wf  <id> --to "Ops Team" --role workflow:editor
+warden unshare  cred <id> --to bob@company.com
+warden transfer wf  <id> --to "Ops Team" --folder-policy mirror
+warden bulk "wf:tag=prod" share --to "Ops Team" --apply     # dry run without --apply
+warden folder share COST_REPORT --to bob@company.com --with-credentials
+
+# safety net
+warden snapshot before-cleanup            # manual snapshot, any time
+warden history                            # journal + snapshots
+warden undo                               # revert the last batch (or: undo <batch-id>)
+warden restore                            # roll the whole DB back (or: restore <prefix>)
+
+# keeping current
+warden install --nginx --dir /opt/n8n     # fresh pinned compose stack (+ nginx.conf)
+warden upgrade n8n|nginx|both             # newest releases, pinned tags, never `latest`
+warden update                             # update warden itself from GitHub releases
+
+# housekeeping
+warden prune                              # report what is reclaimable
+warden prune --executions 10 --history 5  # keep newest N per workflow, then VACUUM
+warden selftest                           # verify the tool against a synthetic DB
+```
+
+Selectors for `bulk`: `wf:*` · `wf:active` · `wf:archived` · `wf:orphan` · `wf:name~regex` · `wf:tag=prod` · `wf:project=<id|name>` · `wf:owner=<email>` — and `cred:*` · `cred:orphan` · `cred:type=slackApi` · `cred:name~regex` · `cred:project=…`
 
 <br/>
 

@@ -21,6 +21,7 @@ Layer map, bottom up:
     runner      the write cycle every mutation passes through
     doctor      health report
     history     journal/snapshot views and undo
+    update      warden self-update and pinned n8n upgrades
     ui          interactive menu
     cli         argument parsing and dispatch
     selftest    verification against a synthetic database

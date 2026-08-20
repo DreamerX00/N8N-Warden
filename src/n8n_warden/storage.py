@@ -10,13 +10,14 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from .config import DB_NAME, MAX_SNAPSHOTS, N8N_DIR, SIDECARS, SNAP_DIR
-from .console import Spinner, ok
+from .console import Spinner, ok, warn
 from .db import Db, PgDb
 from .docker import Instance, helper, sh, start, stop, wait_healthy
 from .errors import Fatal
@@ -24,27 +25,37 @@ from .errors import Fatal
 
 # --- snapshots -----------------------------------------------------------
 
-def snapshot(inst: Instance, label: str) -> str:
+def snapshot(inst: Instance, label: str) -> Path:
     """Full copy of n8n's data. The coarse but always-correct way back."""
     SNAP_DIR.mkdir(parents=True, exist_ok=True)
     snap_id = datetime.now().strftime("%Y%m%dT%H%M%S")
     safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", label)[:40]
 
     if inst.offline:
-        shutil.copy2(inst.db_file, SNAP_DIR / f"{snap_id}__{safe}.sqlite")
+        out = SNAP_DIR / f"{snap_id}__{safe}.sqlite"
+        # The backup API, not copy2: a plain file copy misses whatever still
+        # sits in the -wal sidecar, silently snapshotting an older state.
+        src = sqlite3.connect(f"file:{inst.db_file}?mode=ro", uri=True)
+        dst = sqlite3.connect(str(out))
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
     elif inst.db_kind == "postgres":
-        _pg_dump(inst, SNAP_DIR / f"{snap_id}__{safe}.sql")
+        out = SNAP_DIR / f"{snap_id}__{safe}.sql"
+        _pg_dump(inst, out)
     else:
-        name = f"{snap_id}__{safe}.tgz"
+        out = SNAP_DIR / f"{snap_id}__{safe}.tgz"
         mounts = [(str(SNAP_DIR), "/backup")]
         with Spinner("taking snapshot", f"snapshot {snap_id}"):
-            helper(inst, f"tar czf /backup/{name} -C /data .", extra_mounts=mounts)
+            helper(inst, f"tar czf /backup/{out.name} -C /data .", extra_mounts=mounts)
             # tar runs as root, so the artefact lands root-owned; make it ours.
-            helper(inst, f"chown {os.getuid()}:{os.getgid()} /backup/{name}",
+            helper(inst, f"chown {os.getuid()}:{os.getgid()} /backup/{out.name}",
                    extra_mounts=mounts)
 
     _prune()
-    return snap_id
+    return out
 
 
 def _pg_dump(inst: Instance, out: Path) -> None:
@@ -150,15 +161,16 @@ class Workspace:
             self.db = PgDb(inst)
             return self.db
 
+        in_place = None if inst.offline else direct_path(inst, self.write or self.simulate)
         if inst.offline:
             self.local = inst.db_file
-        elif direct_path(inst, self.write or self.simulate):
+        elif in_place:
             # Bind mount we can reach on the host: skip the copy entirely.
             # At multi-gigabyte database sizes this is the difference between
             # a couple of seconds and a couple of minutes per operation.
             if self.write:
                 self._restart = stop(inst)
-            self.local = direct_path(inst, self.write or self.simulate)
+            self.local = in_place
             self._in_place = True
         else:
             if self.write:
@@ -173,6 +185,10 @@ class Workspace:
 
         readonly = self._in_place and not self.write and not self.simulate
         self.db = Db(self.local, readonly=readonly)
+        if inst.offline and "user" not in self.db.tables():
+            self.db.conn.close()    # __exit__ never runs when __enter__ raises
+            raise Fatal(f"{inst.db_file} does not look like an n8n database "
+                        "(no 'user' table)")
         if self.simulate and self._in_place:
             # n8n is still running. Fail fast rather than queue behind its
             # writer; a dry run must never stall the live instance.
@@ -216,5 +232,7 @@ class Workspace:
             shutil.rmtree(self.tmp, ignore_errors=True)
         if self._restart:
             start(self.inst)
-            wait_healthy(self.inst)
+            if not wait_healthy(self.inst) and self.write:
+                warn("if n8n stays unhealthy, roll the database back with: "
+                     "warden restore")
         return False

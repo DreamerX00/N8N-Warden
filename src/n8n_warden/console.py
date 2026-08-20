@@ -55,7 +55,6 @@ def green(s):  return _c("32", s)
 def yellow(s): return _c("33", s)
 def blue(s):   return _c("36", s)
 def cyan(s):   return _c("96", s)
-def mag(s):    return _c("95", s)
 
 
 def _width(default: int = 80) -> int:

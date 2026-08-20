@@ -12,29 +12,34 @@ from pathlib import Path
 from . import ops
 from .audit import access_matrix, export_access, orphans
 from .config import DEFAULT_FOLDER_POLICY, FOLDER_POLICIES, VERSION
-from .console import (confirm_typed, err, ok, say, set_assume_yes, set_color,
-                      step, table)
+from .console import (confirm, confirm_typed, err, ok, say, set_assume_yes,
+                      set_color, step, table)
 from .doctor import doctor, repair
 from .docker import choose_instance
 from .errors import Fatal
-from .history import last_undoable, revert, show_history
-from .maintenance import prune
+from .history import find_undoable, last_undoable, revert, show_history
+from .maintenance import disk_report, prune
 from .queries import (credentials, folder_path, folder_workflows, folders,
                       personal_project, projects, users, workflows)
 from .runner import apply_change
 from .selectors import resolve
-from .storage import Workspace
+from .storage import Workspace, list_snapshots, restore, snapshot
 from .ui import interactive
+from .update import install, notice, self_update, upgrade
 
 EPILOG = textwrap.dedent("""\
     examples
       warden                                        interactive menu
-      warden doctor
+      warden doctor                                 health + drift report
+      warden install --nginx                        fresh pinned stack behind a proxy
+      warden upgrade both                           n8n + nginx to newest pinned tags
       warden ls workflows
       warden transfer wf w_abc123 --to "Ops Team"
       warden share wf w_abc123 --to "Ops Team" --role workflow:editor
       warden bulk "wf:tag=prod" transfer --to "Ops Team" --apply
-      warden undo
+      warden snapshot before-cleanup                manual safety snapshot
+      warden undo                                   revert the last batch
+      warden restore                                roll back to the newest snapshot
     """)
 
 LISTINGS = {
@@ -75,8 +80,48 @@ def build_parser() -> argparse.ArgumentParser:
                         help="with --fix, show the plan without writing")
 
     sub.add_parser("selftest", help="verify the tool against a synthetic database")
-    sub.add_parser("undo", help="revert the last write batch")
+
+    undo_cmd = sub.add_parser("undo", help="revert a write batch")
+    undo_cmd.add_argument("id", nargs="?",
+                          help="batch id or prefix (default: the last batch)")
+
     sub.add_parser("history", help="show snapshots and the undo journal")
+
+    snap_cmd = sub.add_parser("snapshot", help="take a manual snapshot now")
+    snap_cmd.add_argument("label", nargs="?", default="manual",
+                          help="name to remember it by")
+
+    restore_cmd = sub.add_parser("restore",
+                                 help="roll the whole database back to a snapshot")
+    restore_cmd.add_argument("name", nargs="?",
+                             help="snapshot name or prefix (default: newest; "
+                                  "see `warden history`)")
+
+    sub.add_parser("update", help="update warden itself to the latest release")
+
+    upgrade_cmd = sub.add_parser(
+        "upgrade", help="upgrade n8n and/or nginx to the newest release, "
+                        "pinned to a real tag",
+        description="Rewrites the compose file to the newest version tags "
+                    "(never `latest`), pulls, recreates, and health-checks — "
+                    "n8n gets a snapshot and automatic revert on failure; "
+                    "nginx tracks the stable line.")
+    upgrade_cmd.add_argument("target", nargs="?", choices=["n8n", "nginx", "both"],
+                             default="n8n")
+    upgrade_cmd.add_argument("--dry-run", action="store_true")
+
+    install_cmd = sub.add_parser(
+        "install", help="write a fresh pinned compose stack and start it",
+        description="Generates docker-compose.yml (or docker-compose-nginx.yml "
+                    "plus nginx.conf with --nginx) with the newest pinned "
+                    "version tags and a named data volume, so every later "
+                    "upgrade keeps your workflows and credentials.")
+    install_cmd.add_argument("--nginx", action="store_true",
+                             help="front n8n with an nginx reverse proxy on :80")
+    install_cmd.add_argument("--dir", default=".",
+                             help="where to write the files (default: here)")
+    install_cmd.add_argument("--no-start", action="store_true",
+                             help="write the files without starting the stack")
 
     _add_project_commands(sub)
     _add_user_commands(sub)
@@ -262,10 +307,11 @@ def _strip_global_flags(argv: list[str]) -> tuple[list[str], set[str]]:
 
 
 def _find_project(db, key: str) -> dict:
-    for project in projects(db):
+    known = projects(db)
+    for project in known:
         if key in (project["id"], project["name"]):
             return project
-    matches = [p for p in projects(db) if key.lower() in p["name"].lower()]
+    matches = [p for p in known if key.lower() in p["name"].lower()]
     if len(matches) == 1:
         return matches[0]
     if not matches:
@@ -286,7 +332,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "selftest":
         from .selftest import selftest
         return selftest()
+    if args.cmd == "update":
+        return self_update()
+    if args.cmd == "install":
+        return install(nginx=args.nginx, directory=args.dir,
+                       start=not args.no_start)
 
+    if not args.json:
+        notice()
     inst = choose_instance(args.container, args.db_file)
 
     if args.cmd is None:
@@ -307,8 +360,16 @@ def main(argv: list[str] | None = None) -> int:
         show_history()
         return 0
     if args.cmd == "undo":
-        revert(inst, last_undoable(), assume_yes=args.yes)
+        record = find_undoable(args.id) if args.id else last_undoable()
+        revert(inst, record, assume_yes=args.yes)
         return 0
+    if args.cmd == "snapshot":
+        ok(f"snapshot {snapshot(inst, args.label).name}")
+        return 0
+    if args.cmd == "restore":
+        return _cmd_restore(inst, args)
+    if args.cmd == "upgrade":
+        return upgrade(inst, args.target, dry_run=args.dry_run)
     if args.cmd == "ls":
         return _cmd_ls(inst, args)
     if args.cmd == "export":
@@ -318,6 +379,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "bulk":
         return _cmd_bulk(inst, args)
     if args.cmd == "prune":
+        if args.executions is None and args.history is None:
+            # Bare `prune` shows what is reclaimable instead of erroring.
+            with Workspace(inst, write=False) as db:
+                say()
+                say(table(disk_report(inst, db),
+                          ["what", "detail", "size", "prune"]))
+            say()
+            step("prune with: warden prune --executions N and/or --history N")
+            return 0
         return prune(inst, args.executions, args.history,
                      vacuum=not args.no_vacuum, dry_run=args.dry_run,
                      take_snapshot=args.snapshot)
@@ -527,6 +597,29 @@ def _cmd_folder(inst, args) -> int:
                      lambda db, b: ops.delete_folder(db, b, folder["id"],
                                                      args.recursive),
                      dry_run=dry)
+    return 0
+
+
+def _cmd_restore(inst, args) -> int:
+    snaps = list_snapshots()          # newest first
+    if not snaps:
+        raise Fatal("no snapshots — one is taken before every write")
+    if args.name:
+        matches = [s for s in snaps if s.name.startswith(args.name)]
+        if not matches:
+            raise Fatal(f"no snapshot matching {args.name!r} — see `warden history`")
+        if len(matches) > 1:
+            listing = "\n".join(f"        {s.name}" for s in matches)
+            raise Fatal(f"{args.name!r} matches {len(matches)} snapshots:\n{listing}")
+        snap = matches[0]
+    else:
+        snap = snaps[0]
+
+    say()
+    step(f"restore {snap.name} — this overwrites the current database")
+    if not args.yes and not confirm("proceed?", False):
+        raise Fatal("cancelled")
+    restore(inst, snap)
     return 0
 
 

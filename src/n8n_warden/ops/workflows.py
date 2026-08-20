@@ -114,6 +114,12 @@ def share_workflow(db: Db, batch: Batch, workflow_id: str, project_id: str,
     if role == "workflow:owner":
         raise Fatal("use transfer to change the owner")
 
+    # Checked here rather than left to the FK so a typo'd id fails with a
+    # message, not a traceback — and the name makes bulk notes readable.
+    workflow = db.one("SELECT name FROM workflow_entity WHERE id=?", workflow_id)
+    if not workflow:
+        raise Fatal(f"no workflow {workflow_id!r}")
+
     ts = now_ts()
     existing = db.one('SELECT role FROM shared_workflow '
                       'WHERE "workflowId"=? AND "projectId"=?', workflow_id, project_id)
@@ -128,10 +134,13 @@ def share_workflow(db: Db, batch: Batch, workflow_id: str, project_id: str,
         batch.insert("shared_workflow", {
             "workflowId": workflow_id, "projectId": project_id, "role": role,
             "createdAt": ts, "updatedAt": ts})
-    batch.note(f"shared with project as {role}")
+    batch.note(f"shared {workflow['name']!r} as {role}")
 
 
 def unshare_workflow(db: Db, batch: Batch, workflow_id: str, project_id: str) -> None:
+    workflow = db.one("SELECT name FROM workflow_entity WHERE id=?", workflow_id)
+    if not workflow:
+        raise Fatal(f"no workflow {workflow_id!r}")
     existing = db.one('SELECT role FROM shared_workflow '
                       'WHERE "workflowId"=? AND "projectId"=?', workflow_id, project_id)
     if not existing:
@@ -140,7 +149,7 @@ def unshare_workflow(db: Db, batch: Batch, workflow_id: str, project_id: str) ->
         raise Fatal("cannot unshare the owner — transfer it instead")
     batch.delete("shared_workflow",
                  {"workflowId": workflow_id, "projectId": project_id})
-    batch.note("unshared")
+    batch.note(f"unshared {workflow['name']!r}")
 
 
 def move_workflow_to_folder(db: Db, batch: Batch, workflow_id: str,

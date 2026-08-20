@@ -52,6 +52,7 @@ src/
     runner.py           the write cycle every mutation passes through
     doctor.py           health report
     history.py          journal/snapshot views and undo
+    update.py           warden self-update, pinned n8n/nginx upgrades, install
     ui.py               interactive menu
     cli.py              argument parsing and dispatch
     selftest.py         verification against a synthetic database

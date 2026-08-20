@@ -670,12 +670,67 @@ def _suite_presentation(db, check) -> None:
           set_color_is_reversible)
 
 
+def _suite_update(db, check) -> None:
+    """Version comparison and compose-file pinning — the pure parts of update."""
+    from .update import _parse, pin_image
+
+    check("versions compare numerically, not lexically",
+          lambda: truthy(_parse("v1.10.0") > _parse("1.9.9")))
+    check("unparseable versions sort below everything",
+          lambda: truthy(_parse("?") < _parse("0.0.1")))
+    check("a `latest` tag is replaced with a pinned version", lambda: eq(
+        pin_image("    image: n8nio/n8n:latest\n", "n8nio/n8n", "2.35.0"),
+        "    image: n8nio/n8n:2.35.0\n"))
+    check("an untagged image gets a pinned version", lambda: eq(
+        pin_image("image: n8nio/n8n\n", "n8nio/n8n", "2.35.0"),
+        "image: n8nio/n8n:2.35.0\n"))
+    check("every matching service line is pinned", lambda: eq(
+        pin_image("image: n8nio/n8n:1.0.0\nimage: n8nio/n8n:1.0.0\n",
+                  "n8nio/n8n", "2.35.0").count(":2.35.0"), 2))
+
+    def refuses_lookalike_repo():
+        try:
+            pin_image("image: n8nio/n8n-custom:latest\n", "n8nio/n8n", "2.35.0")
+        except Fatal:
+            return
+        raise AssertionError("pinned a different image")
+
+    check("a look-alike repo name is refused, not mangled", refuses_lookalike_repo)
+
+    from .update import COMPOSE, COMPOSE_NGINX, NGINX_CONF, _pick_nginx_tag
+
+    check("nginx picker tracks the stable line, not mainline", lambda: eq(
+        _pick_nginx_tag(["1.31.4-alpine", "1.30.4-alpine", "1.30.3-alpine",
+                         "1.31.4-alpine-slim", "1.29.0-alpine"]),
+        "1.30.4-alpine"))
+    check("nginx picker survives an empty tag list",
+          lambda: eq(_pick_nginx_tag([]), ""))
+
+    def templates_are_sound():
+        import re
+        default = COMPOSE.replace("@N8N_VERSION@", "9.9.9")
+        proxy = (COMPOSE_NGINX.replace("@N8N_VERSION@", "9.9.9")
+                              .replace("@NGINX_VERSION@", "1.30.4-alpine"))
+        for text in (default, proxy):
+            truthy(re.search(r"@[A-Z_]+@", text) is None)      # no leftover tokens
+            truthy("n8n_data:/home/node/.n8n" in text)          # persistent volume
+            truthy(":latest" not in text)                       # always pinned
+            truthy("healthcheck:" in text)
+        truthy("127.0.0.1:5678:5678" in proxy)   # n8n not exposed past the proxy
+        truthy("N8N_PROXY_HOPS=1" in proxy)
+        truthy("$connection_upgrade" in NGINX_CONF)   # websockets survive
+        truthy("proxy_buffer_size" in NGINX_CONF)     # big session cookies do too
+
+    check("compose templates are pinned, volumed and health-checked",
+          templates_are_sound)
+
+
 SUITES = (
     _suite_basics, _suite_transfer, _suite_folder_policies, _suite_sharing,
     _suite_invariant_detection, _suite_users, _suite_selectors,
     _suite_staleness, _suite_compatibility, _suite_repair,
     _suite_journal_selection, _suite_prune, _suite_picker, _suite_folder_access,
-    _suite_presentation,
+    _suite_presentation, _suite_update,
 )
 
 

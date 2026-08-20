@@ -46,6 +46,7 @@ MENU = [
     ("Snapshots & undo", "menu_history"),
     ("Prune & disk space", "menu_prune"),
     ("Doctor", "menu_doctor"),
+    ("Update n8n & warden", "menu_update"),
 ]
 
 FOLDER_POLICY_HELP = {
@@ -598,6 +599,7 @@ def menu_history(inst: Instance) -> None:
     from .console import ask
     records, snaps = show_history()
     say("    1 undo last batch   2 undo a specific batch   3 restore a snapshot")
+    say("    4 take a snapshot now")
     action = ask("action")
 
     if action in ("1", "2"):
@@ -616,6 +618,11 @@ def menu_history(inst: Instance) -> None:
         warn("this replaces the entire database")
         if confirm(f"restore {snapshot_file.name}?"):
             restore(inst, snapshot_file)
+
+    elif action == "4":
+        from .storage import snapshot
+        label = ask("label", "manual")
+        ok(f"snapshot {snapshot(inst, label).name}")
 
 
 def menu_prune(inst: Instance) -> None:
@@ -693,6 +700,38 @@ def _publish_audit_hits(db, versions: list[str]) -> int:
                       f'WHERE "versionId" IN ({marks})', *versions)["n"]
     except Exception:
         return 0
+
+
+def menu_update(inst: Instance) -> None:
+    """Upgrade n8n and/or nginx to pinned newest releases, or warden itself."""
+    from .console import ask
+    from .update import (latest_n8n, latest_nginx, latest_warden, self_update,
+                         upgrade)
+
+    say()
+    n8n_latest = latest_n8n()
+    nginx_latest = latest_nginx()
+    warden_latest = latest_warden()
+
+    def status(installed, latest):
+        if not latest:
+            return dim("(could not check)")
+        return (green("up to date") if installed == latest
+                else yellow(f"{latest} available"))
+
+    step(f"n8n    {inst.version}   {status(inst.version, n8n_latest)}")
+    step(f"nginx  {dim('newest stable:')} {nginx_latest or dim('?')}")
+    step(f"warden {VERSION}   {status(VERSION, warden_latest)}")
+    say()
+    say("    1 upgrade n8n     2 upgrade nginx     3 upgrade both")
+    say("      " + dim("pinned real tags, never `latest` — n8n gets a snapshot "
+                       "and auto-revert"))
+    say("    4 update warden itself")
+    choice = ask("choose", "1")
+    if choice in ("1", "2", "3"):
+        upgrade(inst, {"1": "n8n", "2": "nginx", "3": "both"}[choice])
+    elif choice == "4":
+        self_update()
 
 
 def menu_doctor(inst: Instance) -> None:

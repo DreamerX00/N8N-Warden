@@ -21,6 +21,13 @@ from .errors import Fatal
 from .queries import credentials, personal_project, workflows
 
 
+def _regex(pattern: str) -> re.Pattern:
+    try:
+        return re.compile(pattern, re.I)
+    except re.error as e:
+        raise Fatal(f"bad regex {pattern!r}: {e}")
+
+
 def resolve(db: Db, expr: str) -> tuple[str, list[dict]]:
     """Returns (kind, matching rows). Kind is 'workflow' or 'credential'."""
     if ":" not in expr:
@@ -46,7 +53,7 @@ def _workflows(db: Db, rest: str) -> list[dict]:
     if rest == "orphan":
         return [r for r in rows if not r["projectId"]]
     if rest.startswith("name~"):
-        pattern = re.compile(rest[5:], re.I)
+        pattern = _regex(rest[5:])
         return [r for r in rows if pattern.search(r["name"] or "")]
     if rest.startswith("tag="):
         tagged = {r["workflowId"] for r in db.q(
@@ -73,7 +80,7 @@ def _credentials(db: Db, rest: str) -> list[dict]:
     if rest == "orphan":
         return [r for r in rows if not r["projectId"]]
     if rest.startswith("name~"):
-        pattern = re.compile(rest[5:], re.I)
+        pattern = _regex(rest[5:])
         return [r for r in rows if pattern.search(r["name"] or "")]
     if rest.startswith("type="):
         return [r for r in rows if r["type"] == rest[5:]]

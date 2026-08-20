@@ -70,3 +70,15 @@ def last_undoable() -> dict:
     if not records:
         raise Fatal("nothing to undo")
     return records[-1]
+
+
+def find_undoable(batch_id: str) -> dict:
+    """One undoable batch by id or unique prefix."""
+    matches = [r for r in undoable(read_journal())
+               if r["id"].startswith(batch_id)]
+    if not matches:
+        raise Fatal(f"no undoable batch {batch_id!r} — see `warden history`")
+    if len(matches) > 1:
+        raise Fatal(f"{batch_id!r} matches {len(matches)} batches — "
+                    "use more of the id")
+    return matches[0]

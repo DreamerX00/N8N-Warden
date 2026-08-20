@@ -45,6 +45,12 @@ def share_credential(db: Db, batch: Batch, cred_id: str, project_id: str,
     if role == "credential:owner":
         raise Fatal("use transfer to change the owner")
 
+    # Checked here rather than left to the FK so a typo'd id fails with a
+    # message, not a traceback — and the name makes bulk notes readable.
+    cred = db.one("SELECT name FROM credentials_entity WHERE id=?", cred_id)
+    if not cred:
+        raise Fatal(f"no credential {cred_id!r}")
+
     ts = now_ts()
     existing = db.one('SELECT role FROM shared_credentials '
                       'WHERE "credentialsId"=? AND "projectId"=?', cred_id, project_id)
@@ -59,10 +65,13 @@ def share_credential(db: Db, batch: Batch, cred_id: str, project_id: str,
         batch.insert("shared_credentials", {
             "credentialsId": cred_id, "projectId": project_id, "role": role,
             "createdAt": ts, "updatedAt": ts})
-    batch.note(f"credential shared as {role}")
+    batch.note(f"shared credential {cred['name']!r} as {role}")
 
 
 def unshare_credential(db: Db, batch: Batch, cred_id: str, project_id: str) -> None:
+    cred = db.one("SELECT name FROM credentials_entity WHERE id=?", cred_id)
+    if not cred:
+        raise Fatal(f"no credential {cred_id!r}")
     existing = db.one('SELECT role FROM shared_credentials '
                       'WHERE "credentialsId"=? AND "projectId"=?', cred_id, project_id)
     if not existing:
@@ -71,4 +80,4 @@ def unshare_credential(db: Db, batch: Batch, cred_id: str, project_id: str) -> N
         raise Fatal("cannot unshare the owner — transfer it instead")
     batch.delete("shared_credentials",
                  {"credentialsId": cred_id, "projectId": project_id})
-    batch.note("credential unshared")
+    batch.note(f"unshared credential {cred['name']!r}")

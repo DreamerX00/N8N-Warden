@@ -38,7 +38,8 @@ PK = {
     "credentials_entity": ("id",),
 }
 
-# Fast fail-fast fingerprint. Verified identical across n8n 2.32.7 and 2.34.5.
+# Fast fail-fast fingerprint. Verified identical across n8n 2.32.7, 2.34.5
+# and 2.35.4.
 EXPECTED_COLUMNS = {
     "project": {"id", "name", "type"},
     "project_relation": {"projectId", "userId", "role"},
@@ -52,9 +53,9 @@ EXPECTED_COLUMNS = {
 # timestamp, making the newest row a sharper compatibility signal than column
 # presence — it also catches data-shape migrations that leave columns untouched
 # but change what a value means.
-VERIFIED_N8N = "2.34.5"
-VERIFIED_MIGRATION = "AddSetupCompletedAtToAgents1785500832626"
-VERIFIED_MIGRATION_TS = 1785500832626
+VERIFIED_N8N = "2.35.4"
+VERIFIED_MIGRATION = "AddReasonToWorkflowPublicationOutbox1786519946974"
+VERIFIED_MIGRATION_TS = 1786519946974
 
 # --- policy --------------------------------------------------------------
 # A folder belongs to exactly one project, so a workflow's folder reference
